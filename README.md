@@ -222,9 +222,12 @@ Set-Service ssh-agent -StartupType Automatic; Start-Service ssh-agent
 Puis, en utilisateur normal : `ssh-add C:\chemin\id_ed25519`. Claude ne peut pas lire les fichiers
 de clé privée.
 
-**SSH par mot de passe** (expérimental) :
+**SSH par mot de passe.**
 `secret run --ssh-pass SSH_PASS -- ssh -o StrictHostKeyChecking=accept-new root@10.0.0.5 "uptime"`.
-Pas encore validé sur un vrai serveur.
+Le mot de passe est fourni à ssh par SSH_ASKPASS, sans passer par l'écran ni par Claude. Validé
+le 2026-10-15 sur un serveur Linux, avec le ssh de Windows (OpenSSH 9.5) et celui de Git Bash,
+depuis un terminal comme depuis Claude. `scp` et `sftp` passent par le même mécanisme (non testés). Les équipements qui
+demandent autre chose qu'un mot de passe (double authentification) ne sont pas couverts.
 
 **WSL.** `secret run -- wsl ...` (ou le `bash` de WSL) transmet les variables. Un shell WSL lancé
 autrement ne les reçoit pas.

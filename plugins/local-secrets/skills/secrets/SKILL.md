@@ -119,11 +119,14 @@ secret run -s monprojet/DB_PASSWORD=MYSQL_PWD -- mysql -h db.local -u app -e "se
 **SSH par clé** : l'utilisateur ajoute sa clé une fois à l'agent ssh de Windows (`ssh-add`),
 ensuite `ssh` fonctionne directement. Tu ne lis jamais un fichier de clé privée (le hook bloque).
 
-**SSH par mot de passe** (expérimental, dépend du support SSH_ASKPASS d'OpenSSH pour Windows) :
+**SSH par mot de passe** (validé avec le ssh de Windows et celui de Git Bash, sans terminal) :
 ```
 secret run --ssh-pass SSH_PASS -- ssh -o StrictHostKeyChecking=accept-new root@192.168.10.25 "uptime"
 ```
-Si ça ne marche pas sur ce serveur, propose à l'utilisateur de passer en authentification par clé.
+`scp` et `sftp` passent par le même mécanisme (non testés). Le mot de passe passe par SSH_ASKPASS, jamais par ta sortie. Garde
+`-o StrictHostKeyChecking=accept-new` pour un premier contact : la question d'empreinte est refusée.
+En cas d'échec (`Permission denied`, double authentification, équipement qui demande autre chose
+qu'un mot de passe), propose à l'utilisateur de passer en authentification par clé.
 
 **Identifiants Windows** (WinRM, partages, Active Directory) :
 ```
@@ -192,8 +195,8 @@ des valeurs. C'est la première source d'ennuis. Donc :
   démarrage), dis-le à l'utilisateur en une phrase, avec la conséquence pour ses propres commandes.
 - **Message bloqué** : si l'utilisateur dit que son message a été refusé, c'est le détecteur de
   secrets. Il peut le renvoyer avec `[nosecret]`, ou enregistrer la valeur avec `secret set`.
-- **SSH** : sans clé dans `ssh-agent`, tu ne peux pas te connecter seul (impossible de taper un mot
-  de passe). `--ssh-pass` n'est pas encore validé : en cas d'échec, propose une clé.
+- **SSH** : tu ne peux pas taper de mot de passe. Avec un mot de passe enregistré, utilise
+  `secret run --ssh-pass CLÉ -- ssh ...` ; sinon il faut une clé dans `ssh-agent`.
 - **Dossier exclu** : si un accès est refusé parce que le dossier est « exclu de la conversion »,
   l'utilisateur a choisi de ne pas faire modifier ces `.env`. Ne contourne pas : propose-lui
   `secret import` sur le fichier, ou `secret config convert on --here`.
