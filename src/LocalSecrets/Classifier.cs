@@ -189,8 +189,7 @@ static partial class Classifier
         {
             var key = m.Groups["k"].Value;
             var value = m.Groups["v"].Value.Trim().Trim('"', '\'', '`').TrimEnd(',', ';', ')');
-            if (value.Length < 4 || IsPlaceholder(value) || CodeReferenceRx().IsMatch(value)) continue;
-            if (Classify(key, value, Annotation.None).Secret)
+            if (IsSecretPair(key, value))
             {
                 found.Add($"une valeur sensible pour {key}");
                 break;
@@ -199,8 +198,10 @@ static partial class Classifier
         return found;
     }
 
+    // Vide, sans aucune lettre ni chiffre (« ... », « *** »), référence, variable ou modèle.
     static bool IsPlaceholder(string v) =>
-        v.Length == 0 || v.StartsWith("secret://", StringComparison.OrdinalIgnoreCase) || v[0] is '$' or '%' or '<' or '{' || PlaceholderRx().IsMatch(v);
+        v.Length == 0 || !v.Any(char.IsLetterOrDigit) || v.StartsWith("secret://", StringComparison.OrdinalIgnoreCase)
+        || v[0] is '$' or '%' or '<' or '{' || PlaceholderRx().IsMatch(v);
 
     // Valeur à ne jamais masquer : vide, modèle, référence, variable, code, ou déjà masquée.
     public static bool IsIgnorableValue(string v) => IsPlaceholder(v.Trim()) || CodeReferenceRx().IsMatch(v.Trim());
@@ -210,6 +211,44 @@ static partial class Classifier
         var tokens = Tokens(key);
         var compact = string.Concat(tokens);
         return SensitiveParts.Any(p => compact.Contains(p, StringComparison.Ordinal)) || tokens.Any(SensitiveTokens.Contains);
+    }
+
+    public enum NameKind { Neutral, Weak, Strong }
+
+    // Noms de secret sans ambiguïté. Un mot doit finir par PASSWORD, TOKEN... : TOKENIZER ou
+    // SECRETARY ne comptent pas, contrairement au tri des .env qui cherche le mot n'importe où.
+    static readonly string[] StrongWordEndings = ["PASSWORD", "PASSWD", "PASSPHRASE", "SECRET", "SECRETS", "TOKEN", "TOKENS", "APIKEY", "CREDENTIAL", "CREDENTIALS"];
+    static readonly HashSet<string> StrongExactTokens = ["PASS", "PWD", "PW", "MDP", "PSK"];
+    static readonly string[] StrongCompactParts =
+        ["APIKEY", "ACCESSKEY", "SECRETKEY", "PRIVATEKEY", "CONNECTIONSTRING", "CONNSTR", "MOTDEPASSE", "CLIENTSECRET", "WEBHOOK", "ACCOUNTKEY", "SHAREDACCESSKEY", "SHAREDACCESSSIGNATURE"];
+
+    public static NameKind OutputNameKind(string key)
+    {
+        var tokens = Tokens(key);
+        var compact = string.Concat(tokens);
+        if (tokens.Any(t => StrongExactTokens.Contains(t) || StrongWordEndings.Any(w => t.EndsWith(w, StringComparison.Ordinal)))
+            || StrongCompactParts.Any(p => compact.Contains(p, StringComparison.Ordinal)))
+            return NameKind.Strong;
+        return tokens.Any(SensitiveTokens.Contains) ? NameKind.Weak : NameKind.Neutral;
+    }
+
+    // Une paire clé/valeur vue dans une sortie ou un message est-elle un secret ?
+    // Plus strict que le tri des .env : on masque sur le nom ou sur une forme de secret reconnue,
+    // jamais sur la seule allure de la valeur. Une regex de matcher, une empreinte git, un GUID ou
+    // du base64 sous un nom anodin restent donc visibles.
+    public static bool IsSecretPair(string key, string value)
+    {
+        var v = value.Trim();
+        if (v.Length < 4 || IsIgnorableValue(v)) return false;
+        if (StrongShape(v) != null) return true;
+        switch (OutputNameKind(key))
+        {
+            case NameKind.Neutral:
+                return false;
+            case NameKind.Weak when !IsHighEntropy(v) && !IsPasswordLike(v):
+                return false;
+        }
+        return Classify(key, v, Annotation.None).Secret;
     }
 
     static bool LooksLikeSecretValue(string v)

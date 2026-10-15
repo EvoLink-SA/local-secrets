@@ -138,8 +138,42 @@ static class SelfTest
         Check(M(code) == code, "code source sans valeur");
         const string refs = "password: ${DB_PASS}\nPASSWORD=changeme\nAPI_TOKEN=secret://p/API_TOKEN\nDB=[secret:p/DB_PASSWORD]";
         Check(M(refs) == refs, "variables, exemples, références et masques existants intacts");
-        Check(M("BUILD_ID=a8F3kL9mN2pQ7rS4tU6vW") == "BUILD_ID=[masqué:BUILD_ID]", "valeur aléatoire masquée par défaut");
-        Check(M("BUILD_ID=a8F3kL9mN2pQ7rS4tU6vW", "BUILD_ID") == "BUILD_ID=a8F3kL9mN2pQ7rS4tU6vW", "clé autorisée jamais masquée");
+        Check(M("BUILD_ID=a8F3kL9mN2pQ7rS4tU6vW") == "BUILD_ID=a8F3kL9mN2pQ7rS4tU6vW", "valeur aléatoire sous un nom anodin : visible");
+        Check(M("API_TOKEN=a8F3kL9mN2pQ7rS4tU6vW") == "API_TOKEN=" + OutputMasker.Marker("API_TOKEN"), "même valeur sous un nom de secret : masquée");
+        Check(M("API_TOKEN=a8F3kL9mN2pQ7rS4tU6vW", "API_TOKEN") == "API_TOKEN=a8F3kL9mN2pQ7rS4tU6vW", "clé autorisée jamais masquée");
+
+        Console.WriteLine("Non-secrets courants : aucun masque attendu");
+        string[] clean =
+        [
+            "{ \"matcher\": \"Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Bash|PowerShell|mcp__.*\", \"type\": \"command\" }",
+            "\"id\": \"4f1c2b7e-9a3d-4e5f-8b6a-1c2d3e4f5a6b\"",
+            "\"sha\": \"3f2a9c8e1b7d6f5a4c3b2a1908f7e6d5c4b3a291\"",
+            "\"integrity\": \"sha512-Q2hhbmdlTWVQbGVhc2UxMjM0NTY3ODlhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5eg==\"",
+            "\"data\": \"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGXRFWHRTb2Z0d2FyZQ\"",
+            "{ \"key\": \"ctrl+shift+p\", \"command\": \"workbench.action.showCommands\" }",
+            "\"key\": \"app.menu.settings.title\"",
+            "\"tokenizer\": \"cl100k_base\"",
+            "glob: src/**/*.{ts,tsx}",
+            "pattern: ^(?:[a-z0-9]+(?:-[a-z0-9]+)*)$",
+            "IMAGE_DIGEST=sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+            "// CLÉ=valeur sans espaces (.env, printenv, set, --password=...)",
+        ];
+        foreach (var c in clean) Check(M(c) == c, "intact : " + (c.Length > 70 ? c[..70] + "..." : c));
+        Check(Classifier.ScanText("voici mon hooks.json : \"matcher\": \"Read|Edit|Grep|Bash|PowerShell|mcp__.*\"").Count == 0,
+              "config JSON collée dans un message, sans secret : envoyée");
+
+        Console.WriteLine("Vrais secrets : masque attendu");
+        (string Text, string Key)[] dirty =
+        [
+            ("{\"auths\":{\"registry.example.com\":{\"auth\":\"dXNlcjpYazkjbVAydkwhcTEyMw==\"}}}", "auth"),
+            ("\"license_key\": \"ABCD-1234-EFGH-5678\"", "license_key"),
+            ("\"key\": \"a8F3kL9mN2pQ7rS4tU6vW\"", "key"),
+            ("\"value\": \"ghp_" + new string('b', 36) + "\"", "JETON"),
+            ("MYSQLPASSWORD=Admin2024", "MYSQLPASSWORD"),
+            ("\"clientSecret\": \"Xk9#mP2vL!q\"", "clientSecret"),
+            ("password: admin", "password"),
+        ];
+        foreach (var (text, key) in dirty) Check(M(text).Contains(OutputMasker.Marker(key)), $"masqué : {key}");
         const string log = "commit 3f2a9c8e1b7d6f5a4c3b2a1908f7e6d5c4b3a291\nAuthor: Nico <n@x.ch>\nDate:   Wed Oct 15 10:12:03 2026 +0200\n\n    fix: corrige le build";
         Check(M(log) == log, "sortie git log intacte");
 

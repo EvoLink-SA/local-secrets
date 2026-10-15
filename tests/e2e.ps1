@@ -255,6 +255,15 @@ try {
     Remove-Item Env:DB_PASSWORD, Env:PREEXISTING
     Check ($res.Trim().Length -eq 0) 'secrets déjà chargés par le terminal : docker compose sans secret run autorisé'
 
+    'Non-régression : faux positifs du masquage générique'
+    $hooksJson = Get-Content -Raw (Join-Path $PSScriptRoot '..\plugins\local-secrets\hooks\hooks.json')
+    $res = Hook 'post-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = 'cat hooks.json' }; tool_response = @{ stdout = $hooksJson; stderr = ''; interrupted = $false; isImage = $false } }
+    Check ($res.Trim().Length -eq 0) 'hooks.json du plugin : rien de masqué (matcher, commandes, chemins)'
+    $res = Hook 'post-tool-use' @{ tool_name = 'Read'; tool_input = @{ file_path = 'package-lock.json' }; tool_response = @{ type = 'text'; file = @{ content = '"integrity": "sha512-Q2hhbmdlTWVQbGVhc2UxMjM0NTY3ODlhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5eg==", "resolved": "https://registry.npmjs.org/x/-/x-1.0.0.tgz"' } } }
+    Check ($res.Trim().Length -eq 0) 'empreintes d''un package-lock : rien de masqué'
+    $res = Hook 'user-prompt-submit' @{ prompt = 'regarde ce hooks.json : { "matcher": "Read|Edit|Grep|Bash|PowerShell|mcp__.*", "type": "command" }' }
+    Check ($res.Trim().Length -eq 0) 'config JSON collée dans le chat, sans secret : message envoyé'
+
     $time = (Measure-Command { Hook 'pre-tool-use' @{ tool_name = 'Read'; tool_input = @{ file_path = (Join-Path $proj 'README.md') } } }).TotalMilliseconds
     "  info   temps d'un hook sans rien à faire : {0:N0} ms" -f $time
 }

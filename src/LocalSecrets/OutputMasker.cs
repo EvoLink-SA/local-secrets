@@ -4,7 +4,7 @@ namespace LocalSecrets;
 
 // Masquage générique : repère dans une sortie les paires clé/valeur et les formes de secrets,
 // sans connaître les valeurs à l'avance (.env distant, docker inspect, printenv, réponse d'API...).
-// Le tri est le même que pour les .env. Les valeurs masquées ne sont stockées nulle part.
+// Les valeurs masquées ne sont stockées nulle part.
 static partial class OutputMasker
 {
     public static string Marker(string name) => $"[masqué:{name}]";
@@ -18,20 +18,20 @@ static partial class OutputMasker
         r = Classifier.KnownTokenInTextRx().Replace(r, _ => Hit(hits, "JETON"));
         r = Classifier.JwtInTextRx().Replace(r, _ => Hit(hits, "JETON"));
         r = UrlPasswordRx().Replace(r, m => Classifier.IsIgnorableValue(m.Groups["v"].Value) ? m.Value : Swap(m, Hit(hits, "MOT_DE_PASSE_URL")));
-        foreach (var rx in PairPatterns) r = rx.Replace(r, m => Pair(m, neverMask, hits, nameOnly: false));
-        // Tableau « NOM   valeur » (Get-ChildItem env:) : seulement pour un nom clairement sensible.
-        r = TableRx().Replace(r, m => Pair(m, neverMask, hits, nameOnly: true));
+        foreach (var rx in PairPatterns) r = rx.Replace(r, m => Pair(m, neverMask, hits));
+        // Tableau « NOM   valeur » (Get-ChildItem env:).
+        r = TableRx().Replace(r, m => Pair(m, neverMask, hits));
         return r;
     }
 
-    static string Pair(Match m, ICollection<string> neverMask, ISet<string> hits, bool nameOnly)
+    // Masqué seulement si le nom est celui d'un secret ou si la valeur a une forme de secret connue
+    // (voir Classifier.IsSecretPair) : jamais sur la seule allure de la valeur.
+    static string Pair(Match m, ICollection<string> neverMask, ISet<string> hits)
     {
         var key = m.Groups["k"].Value;
         var value = m.Groups["v"].Value.Trim().Trim('"', '\'').Replace("\\\"", "\"").Replace("\\\\", "\\");
-        if (value.Length < 4 || Classifier.IsIgnorableValue(value)) return m.Value;
         if (neverMask.Contains(key, StringComparer.OrdinalIgnoreCase)) return m.Value;
-        if (nameOnly && !Classifier.IsSensitiveName(key)) return m.Value;
-        if (!Classifier.Classify(key, value, Annotation.None).Secret) return m.Value;
+        if (!Classifier.IsSecretPair(key, value)) return m.Value;
         return Swap(m, Hit(hits, key));
     }
 

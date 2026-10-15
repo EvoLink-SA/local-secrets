@@ -114,9 +114,21 @@ PUBLIC_DSN=https://x.y/z     # @public
 ## Masquage générique des sorties
 
 En plus des valeurs du coffre, tout ce que Claude reçoit en retour d'une commande ou d'une
-lecture de fichier passe par le même tri. Ce qui ressemble à un secret est remplacé par
-`[masqué:CLÉ]`, sans être stocké nulle part : le `.env` d'un serveur lu en SSH, `docker inspect`,
-`printenv`, `docker compose config`, une réponse d'API, un mot de passe en dur dans une config.
+lecture de fichier est examiné. Ce qui est un secret est remplacé par `[masqué:CLÉ]`, sans être
+stocké nulle part : le `.env` d'un serveur lu en SSH, `docker inspect`, `printenv`,
+`docker compose config`, une réponse d'API, un mot de passe en dur dans une config.
+
+Le critère est plus strict que pour les `.env`, pour ne pas gêner la lecture de configs et de
+code. Une valeur n'est masquée que si :
+- **elle a une forme de secret reconnaissable**, quel que soit son nom : clé PEM, jeton connu
+  (`ghp_`, `sk-`, `AKIA`, JWT...), URL avec mot de passe, chaîne de connexion avec `Password=` ;
+- **ou son nom est celui d'un secret** : `password`, `pwd`, `secret`, `token`, `apikey`,
+  `credential`, `client_secret`... Pour un nom plus vague (`key`, `auth`, `session`, `cookie`,
+  `license`...), il faut en plus que la valeur ait l'air aléatoire ou d'un mot de passe.
+
+Une regex de matcher, un GUID, une empreinte git ou npm, du base64 d'image ou un identifiant de
+build restent donc visibles. En contrepartie, un secret rangé sous un nom anodin (`NOTE=...`) passe
+dans les sorties, faute d'indice. Dans un `.env` sur le disque, le tri complet le chiffre quand même.
 
 ```
 ssh root@srv "cat /opt/app/.env"   ->   DB_HOST=db
@@ -131,7 +143,8 @@ libre (une phrase dans un log) n'est pas couvert.
 Conséquences : une valeur `[masqué:...]` n'est pas réutilisable par Claude (enregistre-la avec
 `secret set` s'il en a besoin) ; un enchaînement d'API où Claude doit relire un jeton renvoyé doit
 tenir dans un seul script ; Claude ne peut pas écrire un masque dans un fichier ni dans une
-commande ; il y aura des faux positifs, que `secret config allow CLÉ` exclut pour de bon.
+commande ; un faux positif reste possible sur un nom de secret qui n'en contient pas un, et
+`secret config allow CLÉ` l'exclut pour de bon.
 
 ### L'interrupteur
 
