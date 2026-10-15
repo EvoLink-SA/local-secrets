@@ -1,0 +1,170 @@
+using System.Text;
+
+namespace LocalSecrets;
+
+// Tests internes, sans toucher au coffre réel : « secret selftest ».
+static class SelfTest
+{
+    static int failures;
+
+    static void Check(bool condition, string label)
+    {
+        Console.WriteLine((condition ? "  OK     " : "  ÉCHEC  ") + label);
+        if (!condition) failures++;
+    }
+
+    public static int Run()
+    {
+        failures = 0;
+        Console.WriteLine("Tri des valeurs");
+        (string Key, string Value, bool Secret)[] cases =
+        [
+            ("SERVER_IP", "192.168.10.25", false),
+            ("FQDN", "app.client.ch", false),
+            ("HTTP_PORT", "8443", false),
+            ("TZ", "Europe/Zurich", false),
+            ("POSTGRES_USER", "appuser", false),
+            ("POSTGRES_PASSWORD", "Xk9#mP2vL!q", true),
+            ("API_TOKEN", "sk-proj-a8F3kL9mN2pQ7rS4tU6vW", true),
+            ("DATABASE_URL", "postgres://appuser:Xk9#mP2vL!q@db:5432/app", true),
+            ("SSH_USER", "root", false),
+            ("SSH_PASS", "Winter2025!", true),
+            ("SMTP_HOST", "mail.client.ch", false),
+            ("DEBUG", "false", false),
+            ("SESSION_LIFETIME", "120", false),
+            ("PASSWORD_MIN_LENGTH", "12", false),
+            ("SSH_KEY_PATH", @"C:\Users\x\.ssh\id_ed25519", false),
+            ("ADMIN_PASSWORD", "admin", true),
+            ("WEBHOOK_URL", "https://n8n.client.ch/webhook/4f1c2b7e-9a3d-4e5f-8b6a-1c2d3e4f5a6b", true),
+            ("CLIENT_ID", "4f1c2b7e-9a3d-4e5f-8b6a-1c2d3e4f5a6b", false),
+            ("RANDOM_THING", "a8F3kL9mN2pQ7rS4tU6vW", true),
+            ("COMPOSE_PROJECT_NAME", "production-database-01", false),
+            ("IMAGE", "ghcr.io/org/app:1.4.2", false),
+            ("ALLOWED_HOSTS", "app.client.ch,localhost", false),
+            ("APP_NAME", "Mon Application", false),
+            ("NOTE", "Admin2024", true),
+            ("AUTH_TYPE", "basic", false),
+            ("KEY_ID", "abc123", false),
+            ("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE", true),
+            ("SMTP_PASSWORD", "", false),
+            ("TOKEN_URL", "https://login.example.com/oauth2/token", false),
+            ("DB_CONN", "Server=db;Database=app;User Id=sa;Password=Xk9mP2vLq;", true),
+            ("LETSENCRYPT_EMAIL", "admin@client.ch", false),
+            ("N8N_BASIC_AUTH_ACTIVE", "true", false),
+            ("APP_KEY", "base64:Q2hhbmdlTWVQbGVhc2UxMjM0NTY3ODk=", true),
+            ("SNMP_COMMUNITY", "Fg7pr1v4te", true),
+            ("PUID", "1000", false),
+        ];
+        foreach (var (key, value, secret) in cases)
+        {
+            var v = Classifier.Classify(key, value, Annotation.None);
+            Check(v.Secret == secret, $"{key} -> {(secret ? "chiffré" : "en clair")} ({v.Reason})");
+        }
+        Check(Classifier.Classify("FOO", "bar", Annotation.Secret).Secret, "annotation @secret");
+        Check(!Classifier.Classify("API_TOKEN", "x1y2z3w4", Annotation.Public).Secret, "annotation @public");
+
+        Console.WriteLine("Fichiers .env");
+        var sample = "# commentaire\r\nexport A=1\r\nB=\"deux mots\" # note\r\nC='x#y'\r\nD=valeur # fin\r\n" +
+                     "KEY=\"-----BEGIN OPENSSH PRIVATE KEY-----\r\nabc\r\n-----END OPENSSH PRIVATE KEY-----\"\r\n" +
+                     "F=secret12 # @secret\r\nE=\r\n";
+        var bytes = Encoding.UTF8.GetBytes(sample);
+        var env = EnvFile.Parse(bytes);
+        Check(env.Render(new Dictionary<EnvAssignment, string>(), addHeader: false).AsSpan().SequenceEqual(bytes), "relecture et réécriture à l'identique (CRLF, commentaires, guillemets)");
+        var byKey = env.Assignments.ToDictionary(a => a.Key);
+        Check(byKey["A"].Value == "1" && byKey["B"].Value == "deux mots" && byKey["C"].Value == "x#y" && byKey["D"].Value == "valeur" && byKey["E"].Value == "",
+              "valeurs : export, guillemets, # dans une valeur, commentaire de fin");
+        Check(byKey["KEY"].Value.Contains("\nabc\n") && byKey["KEY"].EndLine - byKey["KEY"].StartLine == 3, "valeur sur plusieurs lignes (clé PEM)");
+        Check(byKey["F"].Annotation == Annotation.Secret, "annotation lue dans le commentaire");
+        var replaced = EnvFile.Parse(env.Render(new Dictionary<EnvAssignment, string> { [byKey["KEY"]] = "secret://t/KEY" }, addHeader: true));
+        Check(replaced.Assignments.Select(a => a.Key).SequenceEqual(env.Assignments.Select(a => a.Key))
+              && replaced.Assignments.First(a => a.Key == "KEY").Reference == "t/KEY"
+              && replaced.Lines[0].Contains(EnvFile.HeaderMarker),
+              "remplacement d'une valeur multiligne par une référence, en-tête ajouté");
+        var utf16 = Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes("X=1\r\n")).ToArray();
+        Check(EnvFile.Parse(utf16).Render(new Dictionary<EnvAssignment, string>(), false).AsSpan().SequenceEqual(utf16), "fichier UTF-16 (PowerShell 5) conservé");
+
+        Console.WriteLine("Masquage");
+        var patterns = Redactor.BytePatterns(Redactor.Variants([("t/P", "Winter2025!")]), allEncodings: false);
+        var redactor = new StreamRedactor(patterns);
+        using (var ms = new MemoryStream())
+        {
+            var input = Encoding.UTF8.GetBytes("avant Winter2025! milieu Winter2025%21 fin");
+            for (var i = 0; i < input.Length; i += 3)
+            {
+                var chunk = input[i..Math.Min(i + 3, input.Length)];
+                redactor.Process(chunk, chunk.Length, ms, final: false);
+            }
+            redactor.Process([], 0, ms, final: true);
+            var text = Encoding.UTF8.GetString(ms.ToArray());
+            Check(text == "avant [secret:t/P] milieu [secret:t/P] fin", "flux coupé en morceaux de 3 octets, forme encodée URL comprise");
+        }
+        var self = Redactor.Variants([("t/S", "secret")]);
+        Check(Redactor.Redact("un secret ici", self) == "un [secret:t/S] ici", "le masque n'est pas réexaminé");
+
+        Console.WriteLine("Détection dans un message");
+        Check(Classifier.ScanText("le mot de passe est Winter2025!").Count > 0, "mot de passe dans une phrase");
+        Check(Classifier.ScanText("le mot de passe est dans le fichier .env").Count == 0, "phrase sans valeur");
+        Check(Classifier.ScanText("utilise secret://monprojet/DB_PASSWORD pour ça").Count == 0, "référence secret://");
+        Check(Classifier.ScanText("-----BEGIN OPENSSH PRIVATE KEY-----\nabc").Count > 0, "clé privée collée");
+        Check(Classifier.ScanText("mon token ghp_" + new string('a', 36)).Count > 0, "jeton GitHub");
+        Check(Classifier.ScanText("le commit 3f2a9c8e1b7d6f5a4c3b2a1908f7e6d5c4b3a291 casse le build").Count == 0, "empreinte de commit");
+        Check(Classifier.ScanText("crée .env.local avec SMTP_PASSWORD=Tq3$wE8!nB").Count > 0, "ligne de .env collée (CLÉ=valeur)");
+        Check(Classifier.ScanText("voici mon .env :\nDB_HOST=db.local\nDB_PASSWORD=Xk9#mP2vL!q").Count > 0, "bloc .env collé");
+        Check(Classifier.ScanText("{\"user\": \"admin\", \"password\": \"Winter2025!\"}").Count > 0, "JSON collé");
+        Check(Classifier.ScanText("const apiKey = process.env.API_KEY;").Count == 0, "code qui lit une variable");
+        Check(Classifier.ScanText("mets API_TOKEN=${API_TOKEN} dans le compose").Count == 0, "interpolation ${...}");
+        Check(Classifier.ScanText("dans l'exemple, PASSWORD=changeme suffit").Count == 0, "valeur d'exemple");
+        Check(Classifier.ScanText("passe DEBUG=true et PORT=8080, url: https://app.client.ch").Count == 0, "réglages sans secret");
+        Check(Classifier.ScanText("Erreur: ECONNREFUSED sur 10.0.0.5:5432").Count == 0, "message d'erreur");
+
+        Console.WriteLine("Masquage générique des sorties");
+        string M(string s, params string[] never) => OutputMasker.Mask(s, never, new HashSet<string>());
+        Check(M("DB_HOST=db\nREMOTE_PASSWORD=Zr4!pLm8#q\nAPI_URL=https://api.client.ch\n") ==
+              "DB_HOST=db\nREMOTE_PASSWORD=[masqué:REMOTE_PASSWORD]\nAPI_URL=https://api.client.ch\n", ".env distant : seul le mot de passe est masqué");
+        var inspect = M("\"Env\": [\n  \"POSTGRES_USER=appuser\",\n  \"POSTGRES_PASSWORD=Zr4!pLm8#q\",\n  \"PATH=/usr/local/bin:/usr/bin\"\n]");
+        Check(inspect.Contains("\"POSTGRES_PASSWORD=[masqué:POSTGRES_PASSWORD]\"") && inspect.Contains("POSTGRES_USER=appuser") && inspect.Contains("PATH=/usr/local/bin:/usr/bin"),
+              "docker inspect (liste Env)");
+        var yaml = M("services:\n  db:\n    image: postgres:16\n    environment:\n      POSTGRES_PASSWORD: Zr4!pLm8#q\n      TZ: Europe/Zurich\n");
+        Check(yaml.Contains("POSTGRES_PASSWORD: [masqué:POSTGRES_PASSWORD]") && yaml.Contains("image: postgres:16") && yaml.Contains("TZ: Europe/Zurich"),
+              "docker compose config (YAML)");
+        Check(M("{\"access_token\":\"a8F3kL9mN2pQ7rS4tU6vW\",\"expires_in\":3600,\"token_type\":\"Bearer\"}") ==
+              "{\"access_token\":\"[masqué:access_token]\",\"expires_in\":3600,\"token_type\":\"Bearer\"}", "réponse d'API JSON");
+        Check(M("connexion à postgres://app:Zr4!pLm8#q@db:5432/app") == "connexion à postgres://app:[masqué:MOT_DE_PASSE_URL]@db:5432/app", "URL avec mot de passe");
+        Check(M("lancé avec --password=Zr4!pLm8#q --port=5432") == "lancé avec --password=[masqué:password] --port=5432", "option --password=");
+        var table = M("Name                           Value\n----                           -----\nDB_PASSWORD                    Zr4!pLm8#q\nPath                           C:\\Windows\n");
+        Check(table.Contains("DB_PASSWORD                    [masqué:DB_PASSWORD]") && table.Contains("C:\\Windows"), "Get-ChildItem env: (tableau)");
+        Check(M("cat id_rsa\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----\nfin") == "cat id_rsa\n[masqué:CLE_PRIVEE]\nfin", "clé privée");
+        const string code = "const apiKey = process.env.API_KEY;\nif (password == null) return;";
+        Check(M(code) == code, "code source sans valeur");
+        const string refs = "password: ${DB_PASS}\nPASSWORD=changeme\nAPI_TOKEN=secret://p/API_TOKEN\nDB=[secret:p/DB_PASSWORD]";
+        Check(M(refs) == refs, "variables, exemples, références et masques existants intacts");
+        Check(M("BUILD_ID=a8F3kL9mN2pQ7rS4tU6vW") == "BUILD_ID=[masqué:BUILD_ID]", "valeur aléatoire masquée par défaut");
+        Check(M("BUILD_ID=a8F3kL9mN2pQ7rS4tU6vW", "BUILD_ID") == "BUILD_ID=a8F3kL9mN2pQ7rS4tU6vW", "clé autorisée jamais masquée");
+        const string log = "commit 3f2a9c8e1b7d6f5a4c3b2a1908f7e6d5c4b3a291\nAuthor: Nico <n@x.ch>\nDate:   Wed Oct 15 10:12:03 2026 +0200\n\n    fix: corrige le build";
+        Check(M(log) == log, "sortie git log intacte");
+
+        Console.WriteLine("Garde-fous");
+        Check(Guards.CheckForbidden("echo DB_PASSWORD=[masqué:DB_PASSWORD] > app.env") != null, "commande contenant un masque refusée");
+        Check(Guards.CheckForbidden("secret config masking off --here") != null, "couper le masquage refusé pour Claude");
+        Check(Guards.CheckForbidden("secret config masking on") == null, "rallumer le masquage autorisé");
+        Check(Guards.CheckForbidden("secret reveal monprojet/DB") != null, "secret reveal refusé");
+        Check(Guards.CheckForbidden("secret.exe undo .env") != null, "secret undo refusé");
+        Check(Guards.CheckForbidden("[System.Security.Cryptography.ProtectedData]::Unprotect($b,$null,'CurrentUser')") != null, "appel DPAPI direct refusé");
+        Check(Guards.CheckForbidden("secret run -- docker compose up -d") == null, "secret run autorisé");
+
+        Console.WriteLine("Chiffrement");
+        var blob = Native.Protect([1, 2, 3], [9]);
+        Check(Native.Unprotect(blob, [9]).SequenceEqual(new byte[] { 1, 2, 3 }), "DPAPI aller-retour");
+        var tampered = false;
+        try { Native.Unprotect(blob, [8]); } catch { tampered = true; }
+        Check(tampered, "DPAPI refuse une autre entropie (blob déplacé sous un autre nom)");
+        var payload = BackupCmd.EncryptPayload(Encoding.UTF8.GetBytes("{\"a\":1}"), "phrase de test assez longue");
+        Check(Encoding.UTF8.GetString(BackupCmd.DecryptPayload(payload, "phrase de test assez longue")) == "{\"a\":1}", "sauvegarde : chiffrement et relecture");
+        var wrong = false;
+        try { BackupCmd.DecryptPayload(payload, "mauvaise phrase de passe"); } catch (UserError) { wrong = true; }
+        Check(wrong, "sauvegarde : mauvaise phrase refusée");
+
+        Console.WriteLine(failures == 0 ? "Tous les tests passent." : $"{failures} test(s) en échec.");
+        return failures == 0 ? 0 : 1;
+    }
+}

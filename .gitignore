@@ -1,0 +1,9 @@
+# Sorties de compilation intermédiaires (le secret.exe publié dans plugins/local-secrets/bin reste versionné)
+src/LocalSecrets/bin/
+src/LocalSecrets/obj/
+
+# Ne jamais versionner de vrais secrets ni de sauvegardes
+*.lsbackup
+.env
+.env.*
+!.env.example

@@ -1,0 +1,15 @@
+{
+  "name": "local-secrets",
+  "description": "Marketplace locale du plugin local-secrets (coffre DPAPI pour les secrets des projets).",
+  "owner": {
+    "name": "nicolas.vidmer"
+  },
+  "plugins": [
+    {
+      "name": "local-secrets",
+      "source": "./plugins/local-secrets",
+      "description": "Secrets locaux chiffrés par DPAPI : les .env sont protégés au premier accès et Claude utilise les valeurs via secret run sans jamais les voir.",
+      "version": "0.1.0"
+    }
+  ]
+}

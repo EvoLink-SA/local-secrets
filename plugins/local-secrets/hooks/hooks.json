@@ -1,0 +1,56 @@
+{
+  "description": "local-secrets : chiffre les .env au premier accès, masque les secrets dans les sorties, bloque les secrets collés dans le chat",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/secret.exe",
+            "args": ["hook", "session-start"],
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/secret.exe",
+            "args": ["hook", "user-prompt-submit"],
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Bash|PowerShell|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/secret.exe",
+            "args": ["hook", "pre-tool-use"],
+            "timeout": 30,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/secret.exe",
+            "args": ["hook", "post-tool-use"],
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
