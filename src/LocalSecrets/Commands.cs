@@ -248,6 +248,8 @@ static partial class Commands
                 }
                 Console.WriteLine("  " + a.Key.PadRight(width) + state);
             }
+            foreach (var line in env.UnrecognizedLines())
+                Console.WriteLine($"  ligne {line + 1} : format non reconnu (ni CLÉ=valeur, ni clé:valeur, ni commentaire), ignorée par le tri");
         }
         return 0;
     }

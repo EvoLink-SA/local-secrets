@@ -9,7 +9,7 @@ sealed class EnvAssignment
 {
     public int StartLine;
     public int EndLine;              // exclusif : une valeur entre guillemets peut couvrir plusieurs lignes
-    public string Prefix = "";       // indentation, « export », clé, jusqu'au « = » inclus
+    public string Prefix = "";       // indentation, « export », clé, jusqu'au « = » (ou « : ») inclus
     public string Key = "";
     public string LeadingSpace = "";
     public string RawValue = "";
@@ -38,8 +38,25 @@ sealed partial class EnvFile
     Encoding encoding = new UTF8Encoding(false);
     byte[] preamble = [];
 
-    [GeneratedRegex(@"^(?<pre>[ \t]*(?:export[ \t]+)?(?<key>[A-Za-z_][A-Za-z0-9_.\-]*)[ \t]*=)(?<rest>.*)$")]
+    // CLÉ=valeur, et aussi clé:valeur, que certains outils maison acceptent dans un .env : une ligne
+    // de ce format resterait sinon invisible, donc jamais chiffrée.
+    [GeneratedRegex(@"^(?<pre>[ \t]*(?:export[ \t]+)?(?<key>[A-Za-z_][A-Za-z0-9_.\-]*)[ \t]*[=:])(?<rest>.*)$")]
     private static partial Regex AssignRx();
+
+    // Lignes ni vides, ni commentaires, ni affectations : ignorées par le tri, signalées par « secret status ».
+    public List<int> UnrecognizedLines()
+    {
+        var covered = new HashSet<int>();
+        foreach (var a in Assignments)
+            for (var i = a.StartLine; i < a.EndLine; i++) covered.Add(i);
+        var result = new List<int>();
+        for (var i = 0; i < Lines.Count; i++)
+        {
+            var t = Lines[i].Trim();
+            if (t.Length > 0 && !t.StartsWith('#') && !covered.Contains(i)) result.Add(i);
+        }
+        return result;
+    }
 
     [GeneratedRegex(@"^secret://(?<name>[a-z0-9][a-z0-9._\-]*/[A-Za-z_][A-Za-z0-9_.\-]*)$")]
     private static partial Regex ReferenceRx();

@@ -255,6 +255,18 @@ try {
     Remove-Item Env:DB_PASSWORD, Env:PREEXISTING
     Check ($res.Trim().Length -eq 0) 'secrets déjà chargés par le terminal : docker compose sans secret run autorisé'
 
+    'Format clé:valeur dans un .env'
+    $colonDir = Join-Path $root 'vm-projet'
+    New-Item -ItemType Directory -Force $colonDir | Out-Null
+    [IO.File]::WriteAllText((Join-Path $colonDir '.env'), "ssh_user:shay`nssh_password:Zq8!rT4#pLm`nAPI_URL=https://api.client.ch`n")
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; tool_input = @{ file_path = (Join-Path $colonDir '.env') } }
+    $content = [IO.File]::ReadAllText((Join-Path $colonDir '.env'))
+    Check ($content.Contains('ssh_password:secret://vm-projet/ssh_password') -and $content.Contains('ssh_user:shay') -and -not $content.Contains('Zq8!')) '.env au format clé:valeur : mot de passe chiffré avant lecture, format conservé'
+    Push-Location $colonDir
+    $same = & $Exe run -- cmd /c 'if "%ssh_password%"=="Zq8!rT4#pLm" (echo identique) else (echo differente)' | Out-String
+    Pop-Location
+    Check ($same.Contains('identique')) '.env au format clé:valeur : valeur injectée par secret run'
+
     'Non-régression : faux positifs du masquage générique'
     $hooksJson = Get-Content -Raw (Join-Path $PSScriptRoot '..\plugins\local-secrets\hooks\hooks.json')
     $res = Hook 'post-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = 'cat hooks.json' }; tool_response = @{ stdout = $hooksJson; stderr = ''; interrupted = $false; isImage = $false } }

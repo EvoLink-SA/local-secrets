@@ -236,19 +236,27 @@ static partial class Classifier
     // Plus strict que le tri des .env : on masque sur le nom ou sur une forme de secret reconnue,
     // jamais sur la seule allure de la valeur. Une regex de matcher, une empreinte git, un GUID ou
     // du base64 sous un nom anodin restent donc visibles.
-    public static bool IsSecretPair(string key, string value)
+    // valueMustLookSecret : même sous un nom de secret, la valeur doit avoir l'air d'un secret
+    // (utilisé pour les tableaux « NOM   valeur », où un mot ordinaire n'est pas une valeur).
+    public static bool IsSecretPair(string key, string value, bool valueMustLookSecret = false)
     {
         var v = value.Trim();
         if (v.Length < 4 || IsIgnorableValue(v)) return false;
         if (StrongShape(v) != null) return true;
-        switch (OutputNameKind(key))
-        {
-            case NameKind.Neutral:
-                return false;
-            case NameKind.Weak when !IsHighEntropy(v) && !IsPasswordLike(v):
-                return false;
-        }
+        var kind = OutputNameKind(key);
+        if (kind == NameKind.Neutral) return false;
+        var looksSecret = (IsHighEntropy(v) || IsPasswordLike(v)) && !LooksStructured(v);
+        if ((kind == NameKind.Weak || valueMustLookSecret) && !looksSecret) return false;
         return Classify(key, v, Annotation.None).Secret;
+    }
+
+    // Plusieurs morceaux lisibles (unix:path=/run/user/1000/bus, tcp:db:5432) : une adresse ou un
+    // chemin, pas une chaîne aléatoire.
+    static bool LooksStructured(string v)
+    {
+        var parts = v.Split(['/', ':', '=', ',', ';', '@', ' '], StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+               && parts.All(p => NumberRx().IsMatch(p) || (WordRx().IsMatch(p) && CharClasses(p) <= 2 && !LooksRandom(p)));
     }
 
     static bool LooksLikeSecretValue(string v)

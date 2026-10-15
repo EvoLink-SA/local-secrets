@@ -18,20 +18,20 @@ static partial class OutputMasker
         r = Classifier.KnownTokenInTextRx().Replace(r, _ => Hit(hits, "JETON"));
         r = Classifier.JwtInTextRx().Replace(r, _ => Hit(hits, "JETON"));
         r = UrlPasswordRx().Replace(r, m => Classifier.IsIgnorableValue(m.Groups["v"].Value) ? m.Value : Swap(m, Hit(hits, "MOT_DE_PASSE_URL")));
-        foreach (var rx in PairPatterns) r = rx.Replace(r, m => Pair(m, neverMask, hits));
-        // Tableau « NOM   valeur » (Get-ChildItem env:).
-        r = TableRx().Replace(r, m => Pair(m, neverMask, hits));
+        foreach (var rx in PairPatterns) r = rx.Replace(r, m => Pair(m, neverMask, hits, tableRow: false));
+        // Tableau « NOM   valeur » (Get-ChildItem env:) : la valeur doit en plus avoir l'air d'un secret.
+        r = TableRx().Replace(r, m => Pair(m, neverMask, hits, tableRow: true));
         return r;
     }
 
     // Masqué seulement si le nom est celui d'un secret ou si la valeur a une forme de secret connue
     // (voir Classifier.IsSecretPair) : jamais sur la seule allure de la valeur.
-    static string Pair(Match m, ICollection<string> neverMask, ISet<string> hits)
+    static string Pair(Match m, ICollection<string> neverMask, ISet<string> hits, bool tableRow)
     {
         var key = m.Groups["k"].Value;
         var value = m.Groups["v"].Value.Trim().Trim('"', '\'').Replace("\\\"", "\"").Replace("\\\\", "\\");
         if (neverMask.Contains(key, StringComparer.OrdinalIgnoreCase)) return m.Value;
-        if (!Classifier.IsSecretPair(key, value)) return m.Value;
+        if (!Classifier.IsSecretPair(key, value, valueMustLookSecret: tableRow)) return m.Value;
         return Swap(m, Hit(hits, key));
     }
 
@@ -62,8 +62,8 @@ static partial class OutputMasker
     [GeneratedRegex(@"""(?<k>[A-Za-z_][A-Za-z0-9_]{0,60})=(?<v>(?:[^""\\\r\n]|\\.){1,4000})""")]
     private static partial Regex QuotedEnvRx();
 
-    // clé: valeur, en début de ligne (YAML, docker compose config, Format-List)
-    [GeneratedRegex(@"(?m)^(?<pre>[ \t]*(?:\d+\t)?(?:-[ \t]+)?)(?<k>[A-Za-z_][A-Za-z0-9_.\-]{0,60})[ \t]*:[ \t]+(?:""(?<v>[^""\r\n]*)""|'(?<v>[^'\r\n]*)'|(?<v>[^\s""'][^\r\n]*?))(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$")]
+    // clé: valeur ou clé:valeur, en début de ligne (YAML, docker compose config, Format-List, .env maison)
+    [GeneratedRegex(@"(?m)^(?<pre>[ \t]*(?:\d+\t)?(?:-[ \t]+)?)(?<k>[A-Za-z_][A-Za-z0-9_.\-]{0,60})[ \t]*:[ \t]*(?:""(?<v>[^""\r\n]*)""|'(?<v>[^'\r\n]*)'|(?<v>[^\s""'][^\r\n]*?))(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$")]
     private static partial Regex YamlRx();
 
     // clé = "valeur", clé: 'valeur', 'clé': "valeur" (code, INI, TOML, dictionnaires)

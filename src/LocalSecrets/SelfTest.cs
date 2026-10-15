@@ -174,6 +174,23 @@ static class SelfTest
             ("password: admin", "password"),
         ];
         foreach (var (text, key) in dirty) Check(M(text).Contains(OutputMasker.Marker(key)), $"masqué : {key}");
+
+        Console.WriteLine("Format clé:valeur, variables système, tableaux");
+        var colon = EnvFile.Parse(Encoding.UTF8.GetBytes("# vm\nssh_user:shay\nssh_password:Zq8!rT4#pLm\nKEY=a:b\n"));
+        var ck = colon.Assignments.ToDictionary(a => a.Key);
+        Check(ck.ContainsKey("ssh_user") && ck["ssh_password"].Value == "Zq8!rT4#pLm" && ck["KEY"].Value == "a:b" && colon.UnrecognizedLines().Count == 0,
+              ".env : lignes clé:valeur reconnues, CLÉ=a:b intact");
+        Check(Classifier.Classify("ssh_password", ck["ssh_password"].Value, Annotation.None).Secret && !Classifier.Classify("ssh_user", "shay", Annotation.None).Secret,
+              ".env : ssh_password à chiffrer, ssh_user en clair");
+        var colonOut = EnvFile.Parse(colon.Render(new Dictionary<EnvAssignment, string> { [ck["ssh_password"]] = "secret://vm/ssh_password" }, addHeader: false));
+        Check(colonOut.Lines.Contains("ssh_password:secret://vm/ssh_password"), ".env : la référence garde le format clé:valeur");
+        Check(EnvFile.Parse(Encoding.UTF8.GetBytes("A=1\nceci n'est pas une affectation\n")).UnrecognizedLines().SequenceEqual([1]), ".env : ligne non reconnue repérée");
+        Check(M("ssh_user:shay\nssh_password:Zq8!rT4#pLm\n") == "ssh_user:shay\nssh_password:" + OutputMasker.Marker("ssh_password") + "\n", "sortie : clé:valeur sans espace masqué");
+        const string sysenv = "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus\nXDG_SESSION_ID=4\nINVOCATION_ID=7c1e4b2a9d3f4e5a8b6c1d2e3f4a5b6c\nSSH_CLIENT=10.40.41.5 52044 22\n";
+        Check(M(sysenv) == sysenv, "variables système Linux (DBUS, XDG_SESSION_ID, INVOCATION_ID, SSH_CLIENT) : visibles");
+        Check(M("XDG_SESSION_COOKIE=3f2a9c8e1b7d6f5a4c3b2a1908f7e6d5").Contains(OutputMasker.Marker("XDG_SESSION_COOKIE")), "cookie de session : masqué");
+        const string humanTable = "ssh_password                 visible\ntoken_status                 expired\n";
+        Check(M(humanTable) == humanTable, "tableau lisible, nom de secret suivi d'un mot ordinaire : visible");
         const string log = "commit 3f2a9c8e1b7d6f5a4c3b2a1908f7e6d5c4b3a291\nAuthor: Nico <n@x.ch>\nDate:   Wed Oct 15 10:12:03 2026 +0200\n\n    fix: corrige le build";
         Check(M(log) == log, "sortie git log intacte");
 

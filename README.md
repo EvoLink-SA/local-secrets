@@ -109,7 +109,11 @@ LICENCE_CLIENT=ABCD-1234     # @secret
 PUBLIC_DSN=https://x.y/z     # @public
 ```
 
-`secret status` montre la décision et sa raison pour chaque clé, sans afficher les valeurs.
+`secret status` montre la décision et sa raison pour chaque clé, sans afficher les valeurs. Il
+signale aussi les lignes qu'il ne reconnaît pas : elles sont ignorées par le tri, donc jamais
+chiffrées. Les formats reconnus sont `CLÉ=valeur` (avec ou sans `export`, guillemets, valeurs sur
+plusieurs lignes) et `clé:valeur`, que certains scripts maison utilisent. Une ligne `clé:valeur`
+garde son format après conversion (`ssh_password:secret://...`).
 
 ## Masquage générique des sorties
 
@@ -135,10 +139,12 @@ ssh root@srv "cat /opt/app/.env"   ->   DB_HOST=db
                                         DB_PASSWORD=[masqué:DB_PASSWORD]
 ```
 
-Formats repérés : `CLÉ=valeur`, `"CLÉ=valeur"` (docker inspect), `clé: valeur` (YAML),
-`"clé": "valeur"` (JSON), `clé = "valeur"` (code, INI), tableaux `NOM  valeur` pour un nom
-sensible, et partout les clés PEM, jetons reconnaissables et URL avec mot de passe. Le texte
-libre (une phrase dans un log) n'est pas couvert.
+Formats repérés : `CLÉ=valeur`, `"CLÉ=valeur"` (docker inspect), `clé: valeur` ou `clé:valeur`
+(YAML, `.env` maison), `"clé": "valeur"` (JSON), `clé = "valeur"` (code, INI), tableaux
+`NOM  valeur` quand le nom et la valeur ressemblent tous deux à un secret, et partout les clés PEM,
+jetons reconnaissables et URL avec mot de passe. Les adresses et chemins faits de morceaux lisibles
+(`DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`) restent visibles. Le texte libre (une
+phrase dans un log) n'est pas couvert.
 
 Conséquences : une valeur `[masqué:...]` n'est pas réutilisable par Claude (enregistre-la avec
 `secret set` s'il en a besoin) ; un enchaînement d'API où Claude doit relire un jeton renvoyé doit
