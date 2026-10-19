@@ -113,6 +113,20 @@ static partial class Paths
         return broad.Any(b => b.Length > 0 && Path.TrimEndingDirectorySeparator(b).Equals(full, StringComparison.OrdinalIgnoreCase));
     }
 
+    // Le fichier appartient-il au projet ouvert ? Il doit être sous la racine, sans dépôt git
+    // intermédiaire : C:\tools\AutreProjet\.env n'appartient pas à une session ouverte dans C:\tools.
+    public static bool IsInProject(string file, string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return false;
+        var r = Path.TrimEndingDirectorySeparator(Normalize(root));
+        if (IsBroad(r)) return false;
+        var f = Normalize(file);
+        if (!f.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return false;
+        for (var d = Path.GetDirectoryName(f); d != null && d.Length > r.Length; d = Path.GetDirectoryName(d))
+            if (Directory.Exists(Path.Combine(d, ".git")) || File.Exists(Path.Combine(d, ".git"))) return false;
+        return true;
+    }
+
     public static List<string> FindEnvFiles(string root, int maxDepth, int maxEntries = 20000)
     {
         var result = new List<string>();

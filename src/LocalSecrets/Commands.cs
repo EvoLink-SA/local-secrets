@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -13,7 +14,7 @@ static partial class Commands
     [
         "help", "--help", "-h", "version", "--version", "set", "list", "ls", "status", "import", "protect", "unprotect",
         "run", "shell", "reveal", "rm", "remove", "undo", "backup", "restore", "scrub", "doctor", "selftest", "hook", "config",
-        "show", "env",
+        "show", "env", "migrate",
     ];
 
     public static bool IsKnown(string arg) => Known.Contains(arg, StringComparer.OrdinalIgnoreCase);
@@ -46,6 +47,7 @@ static partial class Commands
             case "config": return Config(rest);
             case "show": return ShowCmd.Run(rest);
             case "env": return EnvCmd.Run(rest);
+            case "migrate": return Migrate(rest);
             case "doctor": return Doctor.Run();
             case "selftest": return SelfTest.Run();
             case "hook": return Hooks.Run(rest.Length > 0 ? rest[0] : "");
@@ -80,7 +82,9 @@ static partial class Commands
               secret reveal NOM                affiche une valeur
               secret shell                     ouvre un shell avec les secrets du .env injectés
               secret unprotect FICHIER CLÉ     remet une clé en clair, marquée @public
-              secret undo [FICHIER]            restaure un .env tel qu'avant sa conversion
+              secret undo [FICHIER | --under DOSSIER] [--since "AAAA-MM-JJ HH:MM"] [--ignore] [--force] [--dry-run]
+                                               restaure des .env tels qu'avant leur conversion ; --ignore les
+                                               marque pour ne plus être convertis ; --dry-run liste sans rien faire
               secret rm NOM                    supprime un secret du coffre
               secret backup [FICHIER]          sauvegarde chiffrée par phrase de passe
               secret restore FICHIER           réimporte une sauvegarde
@@ -102,6 +106,7 @@ static partial class Commands
               secret env                       utilisé par le profil pour charger les secrets d'un projet
 
             Entretien
+              secret migrate [--from DOSSIER]  fusionne les anciens coffres (ou une copie) dans le coffre unique
               secret scrub [--dry-run] [--ask] [--force]
                                                efface les valeurs du coffre des fichiers locaux de Claude Code
               secret doctor                    vérifie l'installation
@@ -341,6 +346,11 @@ static partial class Commands
         if (dryRun) return Status(files.ToArray());
         foreach (var f in files)
         {
+            if (EnvFile.HasIgnoreMarker(f))
+            {
+                Console.WriteLine($"{f} : marqué « {EnvFile.IgnoreMarker} », laissé tel quel");
+                continue;
+            }
             var r = Converter.Convert(f);
             if (r == null) continue;
             Console.WriteLine(r.Changed
@@ -399,20 +409,81 @@ static partial class Commands
         return 0;
     }
 
+    // Remet des .env tels qu'avant leur conversion, un fichier ou tout un dossier.
+    // Avec --since, on reprend la version d'avant la première conversion faite depuis cette date.
     static int Undo(string[] args)
     {
-        Ui.RequireInteractive("secret undo");
-        var file = Paths.Normalize(args.FirstOrDefault(a => !a.StartsWith('-')) ?? ".env");
-        var latest = Vault.ListBackups()
-            .Where(b => string.Equals(Paths.Normalize(b.Record.Path), file, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(b => b.Record.Created)
-            .FirstOrDefault();
-        if (latest.Record == null) throw new UserError($"aucune sauvegarde pour {file}");
-        if (!Ui.Confirm($"Remettre {file} tel qu'il était le {latest.Record.Created:dd.MM.yyyy HH:mm}, valeurs en clair comprises ? " +
-                        "Il sera de nouveau chiffré au prochain accès de Claude."))
+        string? file = null, under = null;
+        DateTime? since = null;
+        bool force = false, dryRun = false, ignore = false;
+        for (var i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--under": under = Path.TrimEndingDirectorySeparator(Paths.Normalize(Arg(args, ++i, "--under"))); break;
+                case "--since":
+                    var text = Arg(args, ++i, "--since");
+                    if (!DateTime.TryParseExact(text, ["yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"],
+                            CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var date))
+                        throw new UserError($"date illisible : {text} (attendu : AAAA-MM-JJ HH:MM)");
+                    since = date;
+                    break;
+                case "--force": force = true; break;
+                case "--dry-run": dryRun = true; break;
+                case "--ignore": ignore = true; break;
+                default:
+                    if (args[i].StartsWith('-')) throw new UserError($"option inconnue : {args[i]}");
+                    file = Paths.Normalize(args[i]);
+                    break;
+            }
+        }
+        if (!dryRun) Ui.RequireInteractive("secret undo");
+        if (file == null && under == null) file = Paths.Normalize(".env");
+
+        var plan = new List<(string Path, EnvBackup Chosen, string Status, bool Restore)>();
+        foreach (var group in Vault.ListBackups().GroupBy(b => Paths.Normalize(b.Record.Path), StringComparer.OrdinalIgnoreCase))
+        {
+            var path = group.Key;
+            if (file != null && !path.Equals(file, StringComparison.OrdinalIgnoreCase)) continue;
+            if (under != null && !path.StartsWith(under + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+            var records = group.Select(b => b.Record).OrderBy(r => r.Created).ToList();
+            var chosen = since == null ? records[^1] : records.FirstOrDefault(r => r.Created >= since.Value);
+            if (chosen == null) continue;
+            var lastConversion = records[^1].Created;
+            if (!File.Exists(path)) plan.Add((path, chosen, "introuvable, ignoré", false));
+            else if (!force && File.GetLastWriteTime(path) > lastConversion.AddSeconds(5))
+                plan.Add((path, chosen, "modifié depuis la conversion, ignoré (--force pour le restaurer quand même)", false));
+            else plan.Add((path, chosen, "à restaurer", true));
+        }
+        if (plan.Count == 0)
+            throw new UserError(file != null
+                ? $"aucune sauvegarde pour {file}"
+                : $"aucun fichier converti sous {under}" + (since != null ? $" depuis le {since:dd.MM.yyyy HH:mm}" : ""));
+
+        foreach (var p in plan.OrderBy(p => p.Path, StringComparer.OrdinalIgnoreCase))
+            Console.WriteLine($"  {p.Path}  (version du {p.Chosen.Created:dd.MM.yyyy HH:mm}) : {p.Status}");
+        var todo = plan.Where(p => p.Restore).ToList();
+        if (dryRun || todo.Count == 0)
+        {
+            Console.WriteLine(dryRun ? $"Simulation : {todo.Count} fichier(s) seraient restaurés." : "Rien à restaurer.");
+            return 0;
+        }
+        if (!Ui.Confirm($"Restaurer {todo.Count} fichier(s) tels qu'avant leur conversion, valeurs en clair comprises ?" +
+                        (ignore ? " Ils seront marqués pour ne plus jamais être convertis." : "")))
             return 1;
-        File.WriteAllBytes(file, Vault.RestoreBackup(latest.Record));
-        Console.WriteLine("Fichier restauré.");
+        foreach (var p in todo)
+        {
+            var bytes = Vault.RestoreBackup(p.Chosen);
+            if (ignore)
+            {
+                var env = EnvFile.Parse(bytes);
+                if (!env.Lines.Any(EnvFile.HasIgnoreMarkerText)) bytes = env.RenderWithFirstLine(EnvFile.IgnoreMarker);
+            }
+            File.WriteAllBytes(p.Path, bytes);
+        }
+        Console.WriteLine($"{todo.Count} fichier(s) restauré(s). Leurs secrets restent aussi dans le coffre.");
+        if (!ignore)
+            Console.WriteLine("Un fichier restauré sera de nouveau chiffré si Claude l'ouvre dans son projet ; --ignore l'évite.");
         return 0;
     }
 
@@ -506,6 +577,29 @@ static partial class Commands
             default:
                 throw new UserError("usage : secret config [masking on|off [--here|--project CHEMIN] | allow CLÉ... | disallow CLÉ...]");
         }
+    }
+
+    // Fusion forcée des anciens coffres, ou d'une copie donnée avec --from, avec compte rendu.
+    static int Migrate(string[] args)
+    {
+        var extra = new List<string>();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--from") extra.Add(Path.GetFullPath(Arg(args, ++i, "--from")));
+            else throw new UserError($"option inconnue : {args[i]}");
+        }
+        Console.WriteLine($"Coffre unique : {Vault.Home}");
+        var sources = Legacy.Sources().Concat(extra).ToList();
+        if (sources.Count == 0)
+        {
+            Console.WriteLine("Aucun ancien coffre à fusionner.");
+            return 0;
+        }
+        var report = Legacy.EnsureMerged(force: true, extra: extra);
+        if (report.Count == 0) Console.WriteLine("Rien à fusionner : les anciens emplacements ne contiennent pas de coffre.");
+        foreach (var line in report) Console.WriteLine("  " + line);
+        Console.WriteLine($"{Vault.Load().Secrets.Count} secret(s) dans le coffre unique. Les anciens emplacements sont laissés intacts.");
+        return 0;
     }
 
     static string Arg(string[] args, int i, string option) =>

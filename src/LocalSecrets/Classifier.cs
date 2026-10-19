@@ -62,10 +62,17 @@ static partial class Classifier
         }
         if (tokens.Any(UserTokens.Contains)) return new(false, "nom d'utilisateur");
         if (PlainKind(v) is { } kind) return new(false, kind);
+        // Nom anodin : seule une valeur vraiment aléatoire est chiffrée. Avec un nom neutre (ID, TABLE,
+        // NAME...), ou sur la seule allure d'un mot de passe, on laisse en clair : trop de faux positifs
+        // (identifiants de tenant, noms de tables) pour un gain faible.
+        if (tokens.FirstOrDefault(NeutralTokens.Contains) is { } neutralName) return new(false, $"nom neutre ({neutralName})");
         if (IsHighEntropy(v)) return new(true, "chaîne aléatoire");
-        if (IsPasswordLike(v)) return new(true, "mot de passe probable");
         return new(false, "valeur simple");
     }
+
+    // Valeur d'un secret trop faible pour être masquée partout : mot courant, court, ou lisible.
+    public static bool IsWeakSecret(string v) =>
+        v.Length < 8 || (v.Length < 12 && CharClasses(v) <= 2) || (PlainKind(v) != null && !IsHighEntropy(v));
 
     static List<string> Tokens(string key) =>
         CamelRx().Replace(key, "$1_$2")

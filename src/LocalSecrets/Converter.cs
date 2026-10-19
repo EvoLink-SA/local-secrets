@@ -17,8 +17,10 @@ static class Converter
     public static ConversionReport? Convert(string path, ISet<string>? force = null) => Run(path, dryRun: false, force);
 
     // Dossier exclu par l'utilisateur (secret config convert off) : on ne touche pas au fichier.
+    // Le marqueur « # local-secrets: ignore » dans le fichier a le même effet (fichiers de déploiement).
     public static bool IsExcluded(string path) =>
-        Path.GetDirectoryName(Paths.Normalize(path)) is { } dir && Settings.Load().ConversionDisabledFor(dir) != null;
+        (Path.GetDirectoryName(Paths.Normalize(path)) is { } dir && Settings.Load().ConversionDisabledFor(dir) != null)
+        || EnvFile.HasIgnoreMarker(path);
 
     // Conversion déclenchée sans demande explicite (hooks, secret run, secret env).
     public static ConversionReport? AutoConvert(string path) => IsExcluded(path) ? Analyze(path) : Convert(path);

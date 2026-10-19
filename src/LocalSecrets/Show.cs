@@ -194,9 +194,9 @@ static class EnvCmd
         for (var i = 0; i < args.Length; i++)
             if (args[i] == "--dir" && i + 1 < args.Length) dir = args[++i];
 
+        // Lecture seule : entrer dans un dossier ne convertit jamais rien.
         var file = FindProjectEnv(dir);
         if (file == null) return 0;
-        Converter.AutoConvert(file);
 
         var vault = Vault.Load();
         var vars = new JsonObject();

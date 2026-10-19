@@ -44,9 +44,12 @@ Relance ensuite tes terminaux, Claude Code et Claude Desktop.
 ## Au quotidien
 
 1. Tu remplis ton `.env` comme avant, tout mélangé (IP, FQDN, ports, mots de passe...).
-2. Dès que Claude ouvre une session dans le projet, ou lit, cherche ou cite le fichier, ou que tu
-   entres dans le dossier avec ton terminal, les valeurs sensibles sont chiffrées et remplacées par
-   des références `secret://`. Un message te dit lesquelles.
+2. Quand Claude lit, modifie ou cite dans une commande le `.env` **du projet où tu l'as ouvert**,
+   les valeurs sensibles sont chiffrées et remplacées par des références `secret://`. Un message te
+   dit lesquelles. Rien d'autre n'est converti : ni au démarrage d'une session, ni lors d'une
+   recherche dans un dossier, ni quand ton terminal entre dans un dossier, ni le `.env` d'un autre
+   projet (un autre dépôt git sous le dossier ouvert compte comme un autre projet). Un tel fichier,
+   s'il contient des secrets en clair, est simplement illisible pour Claude.
 3. **Dans ton terminal PowerShell**, rien ne change : en entrant dans le projet, les secrets sont
    chargés en mémoire (`local-secrets : 3 secret(s) chargé(s) pour ...`), et retirés en sortant.
    `docker compose up -d`, `npm run dev`, `python app.py` ou `code .` fonctionnent sans préfixe.
@@ -95,14 +98,16 @@ secrets Docker ou sops pour ça).
 Une valeur est chiffrée si :
 - le nom de la clé contient PASSWORD, PASS, PWD, SECRET, TOKEN, KEY, AUTH, CREDENTIAL, PRIVATE, SALT, COOKIE, WEBHOOK, etc. ;
 - ou sa forme trahit un secret : clé PEM, jeton connu (`sk-`, `ghp_`, `AKIA`, JWT...), URL avec
-  mot de passe, chaîne de connexion avec `Password=`, chaîne aléatoire, mot de passe probable.
+  mot de passe, chaîne de connexion avec `Password=` ;
+- sous un nom anodin, seulement si la valeur est vraiment aléatoire (16 caractères ou plus). Un nom
+  neutre (`..._ID`, `..._TABLE`, `..._NAME`) la laisse toujours en clair.
 
 Restent en clair : IP, FQDN, URL sans identifiants, ports, nombres, booléens, chemins, e-mails,
 images Docker, versions, mots simples, et les noms d'utilisateur. Une clé sensible mais neutre
 (`PASSWORD_MIN_LENGTH=12`, `SSH_KEY_PATH=C:\...`, `TOKEN_URL=https://...`) reste lisible.
 
-Dans le doute, le tri chiffre : une valeur chiffrée à tort ne casse rien, Claude ne la voit
-simplement pas. Pour forcer le choix, ajoute un commentaire en fin de ligne :
+Pour un nom de secret, le tri chiffre dans le doute : une valeur chiffrée à tort ne casse rien,
+Claude ne la voit simplement pas. Pour forcer le choix, ajoute un commentaire en fin de ligne :
 
 ```
 LICENCE_CLIENT=ABCD-1234     # @secret
@@ -172,6 +177,42 @@ pas, par exemple) : `secret config convert off --here`. Les fichiers ne sont plu
 automatiquement ; en échange, Claude ne peut plus lire ceux qui contiennent des secrets en clair,
 pour qu'ils ne lui soient jamais transmis. `secret config convert on --here` annule.
 
+Pour un seul fichier, par exemple un `.env` de déploiement qui doit garder ses vraies valeurs,
+ajoute cette ligne dedans :
+
+```
+# local-secrets: ignore
+```
+
+Il ne sera plus jamais converti, ni par Claude ni par `secret import`, et Claude ne pourra pas le
+lire tant qu'il contient des secrets en clair.
+
+## Annuler des conversions
+
+Chaque conversion garde une copie chiffrée du fichier d'origine. Dans ton terminal :
+
+```powershell
+secret undo --under C:\tools --since "2026-10-19 10:50" --dry-run
+```
+
+Tu obtiens la liste des fichiers convertis sous `C:\tools` depuis cette date, avec la version qui
+serait remise, sans rien toucher. Retire `--dry-run` pour restaurer, après une seule confirmation.
+Avec `--since`, c'est la version d'avant la première conversion faite depuis cette date qui
+revient. Un fichier modifié depuis sa conversion est laissé de côté, sauf avec `--force`. Ajoute
+`--ignore` pour marquer les fichiers restaurés et qu'ils ne soient plus jamais convertis.
+`secret undo FICHIER` fait la même chose pour un seul fichier. Les secrets restent dans le coffre.
+
+## Un seul coffre, même avec Claude Desktop
+
+Le coffre est dans `%USERPROFILE%\.local-secrets`. Jusqu'à la 0.1.2, il était dans `AppData`, où
+Windows redirige les écritures de Claude Desktop (une application empaquetée MSIX) vers une copie
+privée : les sessions de l'application et ton terminal voyaient alors deux coffres différents. Les
+anciens emplacements sont fusionnés automatiquement dans le coffre unique dès qu'ils changent, sans
+rien supprimer. En cas de conflit, la valeur la plus récente gagne. `secret migrate` relance la
+fusion et en affiche le compte rendu, et `secret migrate --from DOSSIER` y ajoute une copie de
+secours. Lance-le une fois dans ton terminal après la mise à jour : lui seul voit le vrai ancien
+coffre, Claude Desktop ne voit que sa copie.
+
 ## Commandes
 
 | Commande | Rôle | Claude peut ? |
@@ -194,7 +235,8 @@ pour qu'ils ne lui soient jamais transmis. `secret config convert on --here` ann
 | `secret shell` | terminal avec les secrets injectés | **non** |
 | `secret env` | utilisé par le profil PowerShell | **non** |
 | `secret unprotect FICHIER CLÉ` | remettre une clé en clair (`# @public`) | **non** |
-| `secret undo [FICHIER]` | restaurer un `.env` d'avant conversion | **non** |
+| `secret undo [FICHIER \| --under DOSSIER] [--since DATE] [--ignore]` | restaurer des `.env` d'avant conversion | **non** (sauf `--dry-run`) |
+| `secret migrate [--from DOSSIER]` | fusionner les anciens coffres dans le coffre unique | oui |
 | `secret rm NOM` | supprimer un secret | **non** |
 | `secret backup` / `secret restore` | sauvegarde par phrase de passe | **non** |
 
@@ -276,10 +318,11 @@ secret restore D:\coffre.lsbackup     # sur la nouvelle machine
 
 | Quoi | Où |
 |---|---|
-| Coffre | `%LOCALAPPDATA%\local-secrets\vault.json` (chaque valeur chiffrée DPAPI) |
-| Copies des `.env` d'origine | `%LOCALAPPDATA%\local-secrets\backups\` (chiffrées, 10 par fichier) |
-| Réglages | `%LOCALAPPDATA%\local-secrets\config.json` |
-| Journal (noms et actions, jamais de valeur) | `%LOCALAPPDATA%\local-secrets\local-secrets.log` |
+| Coffre | `%USERPROFILE%\.local-secrets\vault.json` (chaque valeur chiffrée DPAPI) |
+| Copies des `.env` d'origine | `%USERPROFILE%\.local-secrets\backups\` (chiffrées, 10 par fichier) |
+| Réglages | `%USERPROFILE%\.local-secrets\config.json` |
+| Journal (noms et actions, jamais de valeur) | `%USERPROFILE%\.local-secrets\local-secrets.log` |
+| Anciens coffres, fusionnés et laissés intacts | `%LOCALAPPDATA%\local-secrets\`, et la copie privée de Claude Desktop sous `%LOCALAPPDATA%\Packages\Claude_...\LocalCache\Local\` |
 | Chargement automatique du terminal | `shell\local-secrets.profile.ps1`, appelé depuis ton profil PowerShell 7 |
 | Plugin | `plugins\local-secrets\` (hooks, skill, `bin\secret.exe`) |
 | Code source | `src\LocalSecrets\` (C#, .NET 10) |

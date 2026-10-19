@@ -25,9 +25,16 @@ static class Doctor
         }
 
         var vault = Vault.Load();
-        var readable = Vault.DecryptAll(vault).Count;
+        var all = Vault.DecryptAll(vault);
+        var readable = all.Count;
         if (readable == vault.Secrets.Count) Ok($"{readable} secret(s) dans le coffre, tous déchiffrables");
         else Bad($"{vault.Secrets.Count - readable} secret(s) illisible(s) sous ce compte Windows (coffre copié depuis ailleurs ?)");
+
+        var weak = all.Where(s => Classifier.IsWeakSecret(s.Value)).Select(s => s.Name).ToList();
+        if (weak.Count > 0) Bad($"{weak.Count} secret(s) à valeur faible (mot courant ou trop court), à changer : {string.Join(", ", weak)}");
+
+        var legacy = Legacy.Sources().Where(s => File.Exists(Path.Combine(s, "vault.json"))).ToList();
+        foreach (var s in legacy) Console.WriteLine($"  ..   ancien coffre fusionné automatiquement, laissé intact : {s}");
 
         var onPath = Runner.FindExecutable("secret");
         if (onPath != null) Ok($"« secret » trouvé dans le PATH : {onPath}");

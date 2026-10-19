@@ -18,8 +18,11 @@ Tu ne vois jamais les valeurs, et c'est voulu : tout ce que tu lis part vers l'A
 en clair dans les transcripts locaux. Tu peux pourtant t'en servir, avec `secret run`.
 
 Les hooks du plugin font le reste tout seuls :
-- un `.env` encore en clair est chiffré juste avant que tu le lises ou que tu le cites dans une commande ;
-- ce que tu écris dans un `.env` est chiffré juste après ;
+- un `.env` **du projet ouvert** encore en clair est chiffré juste avant que tu le lises ou que tu
+  le cites dans une commande. Rien n'est converti au démarrage ni lors d'une recherche dans un
+  dossier. Le `.env` d'un autre projet (autre dépôt git, dossier voisin) n'est jamais modifié : il
+  t'est simplement refusé s'il contient des secrets en clair ;
+- ce que tu écris dans un `.env` du projet est chiffré juste après ;
 - une valeur du coffre qui apparaîtrait dans une sortie est remplacée par `[secret:espace/CLÉ]` ;
 - toute autre valeur qui ressemble à un secret dans une sortie (`.env` d'un serveur, `docker inspect`,
   `printenv`, réponse d'API, fichier de config) est remplacée par `[masqué:CLÉ]` ;
@@ -191,8 +194,19 @@ des valeurs. C'est la première source d'ennuis. Donc :
   tourner sous son compte et appeler `secret run`.
 - **Projet copié sur un autre poste, partagé ou cloné** : les références voyagent, pas les valeurs.
   L'autre poste a besoin d'une restauration (`secret restore`) ou de ses propres valeurs.
-- **Conversion au démarrage** : quand un `.env` vient d'être converti (message « converti » au
-  démarrage), dis-le à l'utilisateur en une phrase, avec la conséquence pour ses propres commandes.
+- **Conversion** : quand un `.env` vient d'être converti (message « a protégé ces fichiers »),
+  dis-le à l'utilisateur en une phrase, avec la conséquence pour ses propres commandes et pour les
+  scripts du projet qui lisent ce fichier eux-mêmes (ils doivent lire les variables d'environnement
+  et être lancés par `secret run`).
+- **Annuler** : pour remettre des `.env` tels qu'avant leur conversion, l'utilisateur lance dans son
+  terminal `secret undo FICHIER` ou `secret undo --under DOSSIER --since "AAAA-MM-JJ HH:MM"`. Tu
+  peux lancer la même commande avec `--dry-run` pour lui montrer la liste, jamais sans.
+- **Fichier hors projet refusé** : le message dit « n'appartient pas au projet ouvert ». Propose
+  d'ouvrir Claude dans le projet de ce fichier, ne cherche pas à le lire autrement.
+- **Fichier de déploiement** (un `.env` qui doit garder ses vraies valeurs, envoyé tel quel sur un
+  serveur) : propose à l'utilisateur d'y ajouter la ligne `# local-secrets: ignore`.
+- **« références absentes du coffre »** : en principe réglé depuis la 0.1.3 (coffre unique). Si ça
+  arrive encore, propose à l'utilisateur de lancer `secret migrate` dans son terminal.
 - **Message bloqué** : si l'utilisateur dit que son message a été refusé, c'est le détecteur de
   secrets. Il peut le renvoyer avec `[nosecret]`, ou enregistrer la valeur avec `secret set`.
 - **SSH** : tu ne peux pas taper de mot de passe. Avec un mot de passe enregistré, utilise

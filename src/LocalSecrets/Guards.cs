@@ -97,6 +97,9 @@ static partial class Guards
         return null;
     }
 
+    // Pour les outils MCP qui n'exécutent rien : seul l'envoi d'un masque à la place d'une valeur compte.
+    public static string? CheckMaskOnly(string text) => MaskMarkerRx().IsMatch(text) ? MaskDenied : null;
+
     // Vérifications qui dépendent de l'état des fichiers, après conversion.
     public static string? CheckCommand(string command, string cwd)
     {

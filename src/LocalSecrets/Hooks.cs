@@ -12,6 +12,16 @@ static class Hooks
     static readonly HashSet<string> WriteTools = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
     static readonly HashSet<string> ShellTools = ["Bash", "PowerShell"];
 
+    // Outils MCP qui exécutent des commandes (terminal intégré, shells distants...).
+    static readonly string[] ExecTools = ["terminal", "shell", "exec", "run_command", "command", "ssh"];
+
+    // Racine du projet ouvert : celle que Claude Code donne aux hooks, sinon le dossier courant.
+    static string ProjectRoot(string cwd)
+    {
+        var dir = Environment.GetEnvironmentVariable("CLAUDE_PROJECT_DIR");
+        return !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir) ? dir : cwd;
+    }
+
     public static int Run(string evt)
     {
         JsonObject? input = null;
@@ -54,6 +64,7 @@ static class Hooks
         var tool = Str(input, "tool_name") ?? "";
         var ti = input["tool_input"] as JsonObject ?? new JsonObject();
         var cwd = Str(input, "cwd") ?? Environment.CurrentDirectory;
+        var root = ProjectRoot(cwd);
         var converted = new List<ConversionReport>();
 
         // Pendant (et juste après) l'affichage de secrets à l'utilisateur : pas de capture d'écran
@@ -74,23 +85,20 @@ static class Hooks
             if (full == null) return null;
             if (Paths.IsVaultPath(full)) return Deny(Guards.VaultDenied);
             if (WriteTools.Contains(tool) && WritesMask(ti, full)) return Deny(Guards.MaskDenied);
-            if (Paths.IsEnvFile(full) && Protect(full, converted) is { } excluded) return Deny(excluded);
+            if (Paths.IsEnvFile(full) && Protect(full, converted, root) is { } refused) return Deny(refused);
             if (tool == "Read" && Paths.IsPrivateKeyFile(full)) return Deny(PrivateKeyMessage(full));
         }
         else if (tool == "Grep")
         {
+            // Une recherche dans un dossier ne convertit rien : seul le fichier précis visé peut l'être.
+            // Les valeurs qui ressortiraient sont couvertes par le masquage des sorties.
             var full = Paths.Full(Str(ti, "path") ?? ".", cwd);
             if (full == null) return null;
             if (Paths.IsVaultPath(full)) return Deny(Guards.VaultDenied);
             if (File.Exists(full))
             {
-                if (Paths.IsEnvFile(full) && Protect(full, converted) is { } excluded) return Deny(excluded);
+                if (Paths.IsEnvFile(full) && Protect(full, converted, root) is { } refused) return Deny(refused);
                 if (Paths.IsPrivateKeyFile(full)) return Deny(PrivateKeyMessage(full));
-            }
-            else if (Directory.Exists(full) && !Paths.IsBroad(full))
-            {
-                // Recherche dans un dossier : un .env exclu de la conversion est couvert par le masquage des sorties.
-                foreach (var f in Paths.FindEnvFiles(full, maxDepth: 3, maxEntries: 5000)) Protect(f, converted);
             }
         }
         else if (ShellTools.Contains(tool))
@@ -98,15 +106,19 @@ static class Hooks
             var command = Str(ti, "command") ?? "";
             if (Guards.CheckForbidden(command) is { } forbidden) return Deny(forbidden);
             foreach (var f in Guards.EnvFilesIn(command, cwd))
-                if (Protect(f, converted) is { } excluded) return Deny(excluded, converted);
+                if (Protect(f, converted, root) is { } refused) return Deny(refused, converted);
             if (Guards.CheckCommand(command, cwd) is { } reason) return Deny(reason, converted);
         }
         else if (tool.StartsWith("mcp__", StringComparison.Ordinal))
         {
+            // Les commandes réservées ne concernent que les outils MCP qui exécutent quelque chose
+            // (terminal) ; pour les autres (liste de tâches, messages...), seul l'envoi d'un masque compte.
             var text = string.Join(" ", Strings(ti));
-            if (Guards.CheckForbidden(text) is { } forbidden) return Deny(forbidden);
-            foreach (var f in Guards.EnvFilesIn(text, cwd))
-                if (Protect(f, converted) is { } excluded) return Deny(excluded, converted);
+            var executes = ExecTools.Any(t => tool.Contains(t, StringComparison.OrdinalIgnoreCase));
+            if ((executes ? Guards.CheckForbidden(text) : Guards.CheckMaskOnly(text)) is { } forbidden) return Deny(forbidden);
+            if (executes)
+                foreach (var f in Guards.EnvFilesIn(text, cwd))
+                    if (Protect(f, converted, root) is { } refused) return Deny(refused, converted);
         }
 
         if (converted.Count == 0) return null;
@@ -131,7 +143,8 @@ static class Hooks
         var converted = new List<ConversionReport>();
 
         // Claude vient d'écrire dans un .env : les valeurs sensibles partent aussitôt au coffre.
-        if (WriteTools.Contains(tool) && Paths.Full(Str(ti, "file_path") ?? Str(ti, "notebook_path"), cwd) is { } full && Paths.IsEnvFile(full))
+        if (WriteTools.Contains(tool) && Paths.Full(Str(ti, "file_path") ?? Str(ti, "notebook_path"), cwd) is { } full
+            && Paths.IsEnvFile(full) && Paths.IsInProject(full, ProjectRoot(cwd)))
         {
             try
             {
@@ -207,7 +220,8 @@ static class Hooks
         {
             foreach (var (name, value) in Vault.DecryptAll(vault))
             {
-                if (value.Length >= 6 && prompt.Contains(value, StringComparison.Ordinal))
+                // Une valeur faible (« guest », « secret ») bloquerait tout message contenant ce mot.
+                if (value.Length >= 6 && !Classifier.IsWeakSecret(value) && prompt.Contains(value, StringComparison.Ordinal))
                 {
                     findings.Add($"la valeur de {name}, déjà dans le coffre");
                     break;
@@ -237,19 +251,9 @@ static class Hooks
         if (string.IsNullOrWhiteSpace(dir)) dir = Str(input, "cwd") ?? Environment.CurrentDirectory;
         if (!Directory.Exists(dir) || Paths.IsBroad(dir)) return null;
 
+        // Lecture seule : le démarrage ne convertit plus rien, il liste ce qui est déjà protégé.
         var files = Paths.FindEnvFiles(dir, maxDepth: 2, maxEntries: 5000);
         var converted = new List<ConversionReport>();
-        foreach (var f in files)
-        {
-            try
-            {
-                if (Converter.AutoConvert(f) is { Changed: true } r) converted.Add(r);
-            }
-            catch (Exception e)
-            {
-                Log.Write($"conversion au démarrage impossible pour {f} : {e.Message}");
-            }
-        }
 
         var protectedFiles = new List<string>();
         foreach (var f in files)
@@ -294,15 +298,27 @@ static class Hooks
 
     // Convertit le fichier avant l'accès. Renvoie un motif de refus si le dossier est exclu de la
     // conversion et que le fichier contient encore des valeurs sensibles en clair.
-    static string? Protect(string file, List<ConversionReport> converted)
+    static string? Protect(string file, List<ConversionReport> converted, string root)
     {
-        var r = Converter.AutoConvert(file);
-        if (r is { Changed: true }) converted.Add(r);
-        if (r is { Changed: false, Encrypted.Count: > 0 } && Converter.IsExcluded(file))
-            return $"{Path.GetFileName(file)} contient des valeurs sensibles en clair ({string.Join(", ", r.Encrypted.Select(e => e.Key))}) " +
-                   "et son dossier est exclu de la conversion automatique : accès bloqué pour qu'elles ne te soient pas transmises. " +
-                   "L'utilisateur peut lancer « secret import » sur ce fichier, ou « secret config convert on --here ».";
-        return null;
+        var excluded = Converter.IsExcluded(file);
+        var inProject = Paths.IsInProject(file, root);
+        if (!excluded && inProject)
+        {
+            if (Converter.Convert(file) is { Changed: true } r) converted.Add(r);
+            return null;
+        }
+
+        // Hors du projet ouvert, ou exclu par l'utilisateur : on ne modifie pas le fichier, et on en
+        // bloque l'accès s'il contient des valeurs sensibles en clair.
+        var a = Converter.Analyze(file);
+        if (a is not { Encrypted.Count: > 0 }) return null;
+        var keys = string.Join(", ", a.Encrypted.Select(e => e.Key));
+        var why = excluded
+            ? "il est exclu de la conversion automatique (marqueur « # local-secrets: ignore » ou « secret config convert off »)"
+            : $"il n'appartient pas au projet ouvert ({root})";
+        return $"{Path.GetFileName(file)} contient des valeurs sensibles en clair ({keys}) et {why} : local-secrets ne le modifie pas, " +
+               "et bloque l'accès pour qu'elles ne te soient pas transmises. Ouvre Claude dans le projet de ce fichier, ou l'utilisateur " +
+               "lance « secret import » sur ce fichier dans son terminal.";
     }
 
     static string Summary(List<ConversionReport> reports) =>

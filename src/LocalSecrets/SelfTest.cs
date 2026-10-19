@@ -42,7 +42,9 @@ static class SelfTest
             ("IMAGE", "ghcr.io/org/app:1.4.2", false),
             ("ALLOWED_HOSTS", "app.client.ch,localhost", false),
             ("APP_NAME", "Mon Application", false),
-            ("NOTE", "Admin2024", true),
+            ("NOTE", "Admin2024", false),
+            ("R1_TENANT_ID", "a8F3kL9mN2pQ7rS4tU6vW", false),
+            ("KB_SQL_TABLE", "OffresCommerciales_V2", false),
             ("AUTH_TYPE", "basic", false),
             ("KEY_ID", "abc123", false),
             ("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE", true),
@@ -98,8 +100,14 @@ static class SelfTest
             var text = Encoding.UTF8.GetString(ms.ToArray());
             Check(text == "avant [secret:t/P] milieu [secret:t/P] fin", "flux coupé en morceaux de 3 octets, forme encodée URL comprise");
         }
-        var self = Redactor.Variants([("t/S", "secret")]);
-        Check(Redactor.Redact("un secret ici", self) == "un [secret:t/S] ici", "le masque n'est pas réexaminé");
+        var strong = Redactor.Variants([("t/S", "S3cr3t!x9")]);
+        Check(Redactor.Redact("un S3cr3t!x9 ici", strong) == "un " + Redactor.Mask("t/S") + " ici", "valeur forte : masquée partout");
+        var weak = Redactor.Variants([("p/RABBITMQ_DEFAULT_PASS", "guest")]);
+        Check(Redactor.Redact("connecté en guest", weak) == "connecté en guest", "valeur faible : mot courant laissé tel quel");
+        Check(Redactor.Redact("RABBITMQ_DEFAULT_PASS=guest", weak) == "RABBITMQ_DEFAULT_PASS=" + Redactor.Mask("p/RABBITMQ_DEFAULT_PASS"),
+              "valeur faible : masquée à côté de son nom");
+        Check(Classifier.IsWeakSecret("secret") && Classifier.IsWeakSecret("admin123") && !Classifier.IsWeakSecret("Winter2025!")
+              && !Classifier.IsWeakSecret("4f1c2b7e-9a3d-4e5f-8b6a-1c2d3e4f5a6b"), "repérage des valeurs faibles");
 
         Console.WriteLine("Détection dans un message");
         Check(Classifier.ScanText("le mot de passe est Winter2025!").Count > 0, "mot de passe dans une phrase");
@@ -202,6 +210,22 @@ static class SelfTest
         Check(Guards.CheckForbidden("secret.exe undo .env") != null, "secret undo refusé");
         Check(Guards.CheckForbidden("[System.Security.Cryptography.ProtectedData]::Unprotect($b,$null,'CurrentUser')") != null, "appel DPAPI direct refusé");
         Check(Guards.CheckForbidden("secret run -- docker compose up -d") == null, "secret run autorisé");
+
+        Console.WriteLine("Périmètre des conversions");
+        Check(EnvFile.HasIgnoreMarkerText("A=1\n# local-secrets: ignore\nB=2") && !EnvFile.HasIgnoreMarkerText(EnvFile.Header), "marqueur ignore reconnu, en-tête normal non");
+        var scratch = Path.Combine(Path.GetTempPath(), "ls-selftest-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(scratch, "projet", "sous-dossier"));
+            Directory.CreateDirectory(Path.Combine(scratch, "autre", ".git"));
+            Check(Paths.IsInProject(Path.Combine(scratch, "projet", "sous-dossier", ".env"), Path.Combine(scratch, "projet")), "fichier d'un sous-dossier du projet : dans le projet");
+            Check(!Paths.IsInProject(Path.Combine(scratch, "autre", ".env"), scratch), "fichier d'un autre dépôt git sous la racine : hors du projet");
+            Check(!Paths.IsInProject(Path.Combine(scratch, "voisin", ".env"), Path.Combine(scratch, "projet")), "fichier d'un dossier voisin : hors du projet");
+        }
+        finally
+        {
+            try { Directory.Delete(scratch, recursive: true); } catch { }
+        }
 
         Console.WriteLine("Chiffrement");
         var blob = Native.Protect([1, 2, 3], [9]);

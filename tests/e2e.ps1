@@ -1,4 +1,4 @@
-#requires -Version 7
+﻿#requires -Version 7
 # Tests de bout en bout de secret.exe : CLI et hooks, dans un coffre et un projet temporaires.
 # Les valeurs ci-dessous sont factices.
 param([string]$Exe = (Join-Path $PSScriptRoot '..\plugins\local-secrets\bin\secret.exe'))
@@ -15,8 +15,11 @@ function Check([bool]$condition, [string]$label) {
     if ($condition) { "  OK     $label" } else { "  ÉCHEC  $label"; $script:failures++ }
 }
 
+Remove-Item Env:CLAUDE_PROJECT_DIR -ErrorAction SilentlyContinue
+Remove-Item Env:LOCAL_SECRETS_LEGACY_DIRS -ErrorAction SilentlyContinue
+
 function Hook([string]$event, [hashtable]$payload) {
-    $payload.cwd = $proj
+    if (-not $payload.ContainsKey('cwd')) { $payload.cwd = $proj }
     $payload.session_id = 'e2e'
     ($payload | ConvertTo-Json -Depth 10 -Compress) | & $Exe hook $event | Out-String
 }
@@ -137,7 +140,7 @@ try {
     $env:CLAUDE_PROJECT_DIR = $proj
     $res = Hook 'session-start' @{ source = 'startup' }
     Remove-Item Env:CLAUDE_PROJECT_DIR
-    Check ($res.Contains('additionalContext') -and $res.Contains('POSTGRES_PASSWORD') -and [IO.File]::ReadAllText($fresh).Contains('secret://')) 'SessionStart : projet converti, clés listées pour Claude'
+    Check ($res.Contains('additionalContext') -and $res.Contains('POSTGRES_PASSWORD') -and -not [IO.File]::ReadAllText($fresh).Contains('secret://')) 'SessionStart : rien converti, clés déjà protégées listées pour Claude'
     Check (-not ($secrets + 'Rd7!kq2Mz' | Where-Object { $res.Contains($_) })) 'SessionStart : aucune valeur dans le contexte'
 
     'Hôte distant, masquage générique et interrupteur'
@@ -180,9 +183,10 @@ try {
     $tproj = Join-Path $root 'terminal-projet'
     New-Item -ItemType Directory -Force (Join-Path $tproj 'src') | Out-Null
     $outside = Join-Path $root 'ailleurs'; New-Item -ItemType Directory -Force $outside | Out-Null
-    [IO.File]::WriteAllText((Join-Path $tproj '.env'), "DB_HOST=db`nDB_PASSWORD=Ph5!kd8#Wq2`nPREEXISTING=Mz3!rT8#qL5`n")
+    [IO.File]::WriteAllText((Join-Path $tproj '.env'), "DB_HOST=db`nDB_PASSWORD=Ph5!kd8#Wq2`nPREEXISTING_TOKEN=Mz3!rT8#qL5`n")
     $resultFile = Join-Path $root 'probe.txt'
     $bin = Split-Path $Exe
+    & $Exe import $tproj | Out-Null   # le terminal ne convertit plus rien de lui-même
     Start-Process pwsh -WindowStyle Hidden -Wait -ArgumentList @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'console-probe.ps1'),
         '-Project', $tproj, '-Outside', $outside, '-Result', $resultFile, '-Expected', 'Ph5!kd8#Wq2', '-Bin', $bin)
     $probe = if (Test-Path $resultFile) { Get-Content $resultFile } else { @() }
@@ -249,23 +253,80 @@ try {
     Check ($res.Trim().Length -eq 0) 'dossier exclu : un .env sans secret reste lisible'
     Remove-Item (Join-Path $env:LOCAL_SECRETS_HOME 'config.json')
 
-    $env:DB_PASSWORD = 'deja-injecte'; $env:PREEXISTING = 'deja-injecte'
+    $env:DB_PASSWORD = 'deja-injecte'; $env:PREEXISTING_TOKEN = 'deja-injecte'
     $hookIn = @{ tool_name = 'Bash'; cwd = $tproj; session_id = 'e2e'; tool_input = @{ command = 'docker compose up -d' } } | ConvertTo-Json -Compress
     $res = $hookIn | & $Exe hook pre-tool-use | Out-String
-    Remove-Item Env:DB_PASSWORD, Env:PREEXISTING
+    Remove-Item Env:DB_PASSWORD, Env:PREEXISTING_TOKEN
     Check ($res.Trim().Length -eq 0) 'secrets déjà chargés par le terminal : docker compose sans secret run autorisé'
 
     'Format clé:valeur dans un .env'
     $colonDir = Join-Path $root 'vm-projet'
     New-Item -ItemType Directory -Force $colonDir | Out-Null
     [IO.File]::WriteAllText((Join-Path $colonDir '.env'), "ssh_user:shay`nssh_password:Zq8!rT4#pLm`nAPI_URL=https://api.client.ch`n")
-    $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; tool_input = @{ file_path = (Join-Path $colonDir '.env') } }
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; cwd = $colonDir; tool_input = @{ file_path = (Join-Path $colonDir '.env') } }
     $content = [IO.File]::ReadAllText((Join-Path $colonDir '.env'))
     Check ($content.Contains('ssh_password:secret://vm-projet/ssh_password') -and $content.Contains('ssh_user:shay') -and -not $content.Contains('Zq8!')) '.env au format clé:valeur : mot de passe chiffré avant lecture, format conservé'
     Push-Location $colonDir
     $same = & $Exe run -- cmd /c 'if "%ssh_password%"=="Zq8!rT4#pLm" (echo identique) else (echo differente)' | Out-String
     Pop-Location
     Check ($same.Contains('identique')) '.env au format clé:valeur : valeur injectée par secret run'
+
+    '0.1.3 : périmètre des conversions, annulation, fusion des coffres, valeurs faibles'
+    $grepDir = Join-Path $proj 'recherche'
+    New-Item -ItemType Directory -Force $grepDir | Out-Null
+    [IO.File]::WriteAllText((Join-Path $grepDir '.env'), "GREP_PASSWORD=Gq7!mz2#Lp4`n")
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Grep'; tool_input = @{ pattern = 'PASSWORD'; path = $proj } }
+    Check (-not [IO.File]::ReadAllText((Join-Path $grepDir '.env')).Contains('secret://')) 'recherche dans un dossier : aucun .env converti'
+
+    $other = Join-Path $root 'autre-depot'
+    New-Item -ItemType Directory -Force (Join-Path $other '.git') | Out-Null
+    [IO.File]::WriteAllText((Join-Path $other '.env'), "OTHER_PASSWORD=Ot5!kw8#Rz1`n")
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; cwd = $root; tool_input = @{ file_path = (Join-Path $other '.env') } }
+    Check ($res.Contains('"permissionDecision":"deny"') -and -not [IO.File]::ReadAllText((Join-Path $other '.env')).Contains('secret://')) '.env d''un autre dépôt sous la racine : non converti, lecture bloquée'
+
+    $deploy = Join-Path $proj 'deploy'
+    New-Item -ItemType Directory -Force $deploy | Out-Null
+    [IO.File]::WriteAllText((Join-Path $deploy 'kb.env'), "# local-secrets: ignore`nKB_SQL_DSN=postgres://kb:Kb4!sq9#Xt2@db/kb`n")
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; tool_input = @{ file_path = (Join-Path $deploy 'kb.env') } }
+    Check ($res.Contains('"permissionDecision":"deny"') -and -not [IO.File]::ReadAllText((Join-Path $deploy 'kb.env')).Contains('secret://')) 'marqueur ignore : fichier jamais converti, lecture bloquée'
+
+    $out = & $Exe undo --under $root --dry-run 2>&1 | Out-String
+    Check ($LASTEXITCODE -eq 0 -and $out.Contains('à restaurer') -and $out.Contains('Simulation')) 'undo --under --dry-run : fichiers convertis listés, rien modifié'
+    $out = & $Exe undo --under $root 2>&1 | Out-String
+    Check ($LASTEXITCODE -ne 0) 'undo réel : refusé hors terminal interactif'
+
+    $res = Hook 'pre-tool-use' @{ tool_name = 'mcp__ccd_turn__update_plan'; tool_input = @{ items = @(@{ content = 'Annuler avec secret undo --under'; status = 'pending' }) } }
+    Check ($res.Trim().Length -eq 0) 'outil MCP qui n''exécute rien : texte « secret undo » accepté'
+    $res = Hook 'pre-tool-use' @{ tool_name = 'mcp__terminal__run_in_terminal'; tool_input = @{ command = 'secret undo --under C:\tools' } }
+    Check ($res.Contains('"permissionDecision":"deny"')) 'terminal MCP : secret undo refusé'
+
+    'guest' | & $Exe set weak/RABBITMQ_DEFAULT_PASS | Out-Null
+    $res = Hook 'post-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = 'docker logs mq' }; tool_response = @{ stdout = "user guest connected`nRABBITMQ_DEFAULT_PASS=guest`n"; stderr = ''; interrupted = $false; isImage = $false } }
+    $seen = if ($res.Trim()) { ($res | ConvertFrom-Json).hookSpecificOutput.updatedToolOutput.stdout } else { '' }
+    Check ($seen.Contains('user guest connected') -and $seen -match 'RABBITMQ_DEFAULT_PASS=\[secret:weak/' -and -not $seen.Contains('PASS=guest')) 'valeur faible : mot courant intact, masquée à côté de son nom'
+    $res = Hook 'user-prompt-submit' @{ prompt = 'le compte guest de RabbitMQ ne marche plus' }
+    Check ($res.Trim().Length -eq 0) 'valeur faible : message contenant ce mot envoyé'
+
+    $savedHome = $env:LOCAL_SECRETS_HOME
+    $legacyA = Join-Path $root 'ancien-a'; $legacyB = Join-Path $root 'ancien-b'; $unified = Join-Path $root 'coffre-unique'
+    $env:LOCAL_SECRETS_HOME = $legacyA
+    'ValeurA-111!x' | & $Exe set mig/ONLY_A | Out-Null
+    'Commune-Ancienne1!' | & $Exe set mig/COMMON | Out-Null
+    Start-Sleep -Milliseconds 1200
+    $env:LOCAL_SECRETS_HOME = $legacyB
+    'ValeurB-222!y' | & $Exe set mig/ONLY_B | Out-Null
+    'Commune-Recente2!' | & $Exe set mig/COMMON | Out-Null
+    $env:LOCAL_SECRETS_HOME = $unified
+    $env:LOCAL_SECRETS_LEGACY_DIRS = "$legacyA;$legacyB"
+    $names = & $Exe list 2>&1 | Where-Object { $_ -match '^mig/' } | ForEach-Object { ($_ -split '\s+')[0] }
+    Check (@($names).Count -eq 3) "fusion des anciens coffres : 3 secrets réunis ($(@($names) -join ', '))"
+    $same = & $Exe run -s mig/COMMON=COMMON -- cmd /c 'if "%COMMON%"=="Commune-Recente2!" (echo recente) else (echo ancienne)' | Out-String
+    Check ($same.Contains('recente')) 'fusion : en cas de conflit, la valeur la plus récente gagne'
+    & $Exe migrate 2>&1 | Out-Null
+    $names = & $Exe list 2>&1 | Where-Object { $_ -match '^mig/' }
+    Check (@($names).Count -eq 3 -and (Test-Path (Join-Path $legacyA 'vault.json'))) 'fusion répétée : rien en double, anciens coffres laissés intacts'
+    Remove-Item Env:LOCAL_SECRETS_LEGACY_DIRS
+    $env:LOCAL_SECRETS_HOME = $savedHome
 
     'Non-régression : faux positifs du masquage générique'
     $hooksJson = Get-Content -Raw (Join-Path $PSScriptRoot '..\plugins\local-secrets\hooks\hooks.json')

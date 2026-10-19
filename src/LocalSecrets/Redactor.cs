@@ -3,6 +3,9 @@ using System.Text;
 
 namespace LocalSecrets;
 
+// Un motif à masquer, et ce qui le remplace.
+readonly record struct RedactPattern(string Pattern, string Name, string Replacement);
+
 // Masque les valeurs du coffre partout où elles pourraient ressortir.
 static class Redactor
 {
@@ -11,17 +14,29 @@ static class Redactor
     public static string Mask(string name) => $"[secret:{name}]";
 
     // Toutes les formes sous lesquelles une valeur peut apparaître dans une sortie.
-    public static List<(string Pattern, string Name)> Variants(IEnumerable<(string Name, string Value)> secrets)
+    public static List<RedactPattern> Variants(IEnumerable<(string Name, string Value)> secrets)
     {
-        var list = new List<(string, string)>();
+        var list = new List<RedactPattern>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        void Add(string pattern, string name)
+        void Add(string pattern, string name, string? replacement = null)
         {
-            if (pattern.Length >= MinLength && seen.Add(pattern)) list.Add((pattern, name));
+            if (pattern.Length >= MinLength && seen.Add(pattern)) list.Add(new(pattern, name, replacement ?? Mask(name)));
         }
         foreach (var (name, value) in secrets)
         {
             if (value.Length < MinLength) continue;
+
+            // Valeur faible (« guest », « secret », « admin123 ») : la masquer partout remplacerait un
+            // mot courant dans toutes les sorties, et trahirait la valeur. On ne la masque qu'à côté de
+            // son nom (CLÉ=valeur, "clé": "valeur"...).
+            if (Classifier.IsWeakSecret(value))
+            {
+                var key = KeyOf(name);
+                foreach (var (before, after) in ContextForms(key))
+                    Add(before + value + after, name, before + Mask(name) + after);
+                continue;
+            }
+
             Add(value, name);
             Add(Uri.EscapeDataString(value), name);
             Add(WebUtility.UrlEncode(value), name);
@@ -38,9 +53,23 @@ static class Redactor
                 }
             }
         }
-        list.Sort((a, b) => b.Item1.Length.CompareTo(a.Item1.Length));
+        list.Sort((a, b) => b.Pattern.Length.CompareTo(a.Pattern.Length));
         return list;
     }
+
+    // Nom de la variable à partir du nom complet : espace/CLÉ, ou espace/CLÉ.2 pour un doublon.
+    static string KeyOf(string name)
+    {
+        var key = name[(name.LastIndexOf('/') + 1)..];
+        var dot = key.LastIndexOf('.');
+        return dot > 0 && key[(dot + 1)..].All(char.IsAsciiDigit) ? key[..dot] : key;
+    }
+
+    static (string Before, string After)[] ContextForms(string key) =>
+    [
+        ($"{key}=", ""), ($"{key}: ", ""), ($"{key}:", ""), ($"{key}=\"", "\""), ($"{key}='", "'"),
+        ($"\"{key}\": \"", "\""), ($"\"{key}\":\"", "\""),
+    ];
 
     // Échappement façon JSON.stringify, tel qu'on le trouve dans les transcripts .jsonl.
     public static string JsEscape(string s)
@@ -67,12 +96,12 @@ static class Redactor
     }
 
     // Remplacement en une seule passe : le masque inséré n'est jamais réexaminé.
-    public static string Redact(string s, List<(string Pattern, string Name)> patterns, ISet<string>? hits = null)
+    public static string Redact(string s, List<RedactPattern> patterns, ISet<string>? hits = null)
     {
         if (patterns.Count == 0 || s.Length == 0) return s;
         var any = false;
-        foreach (var (p, _) in patterns)
-            if (s.Contains(p, StringComparison.Ordinal)) { any = true; break; }
+        foreach (var p in patterns)
+            if (s.Contains(p.Pattern, StringComparison.Ordinal)) { any = true; break; }
         if (!any) return s;
 
         var sb = new StringBuilder(s.Length);
@@ -80,13 +109,14 @@ static class Redactor
         while (i < s.Length)
         {
             var matched = false;
-            foreach (var (p, name) in patterns)
+            foreach (var p in patterns)
             {
-                if (i + p.Length <= s.Length && s[i] == p[0] && string.CompareOrdinal(s, i, p, 0, p.Length) == 0)
+                var pattern = p.Pattern;
+                if (i + pattern.Length <= s.Length && s[i] == pattern[0] && string.CompareOrdinal(s, i, pattern, 0, pattern.Length) == 0)
                 {
-                    sb.Append(Mask(name));
-                    i += p.Length;
-                    hits?.Add(name);
+                    sb.Append(p.Replacement);
+                    i += pattern.Length;
+                    hits?.Add(p.Name);
                     matched = true;
                     break;
                 }
@@ -99,7 +129,7 @@ static class Redactor
     static bool providerRegistered;
 
     // Motifs en octets pour les sorties de programmes, dans chaque encodage plausible sous Windows.
-    public static List<(byte[] Pattern, byte[] Replacement)> BytePatterns(List<(string Pattern, string Name)> variants, bool allEncodings = true)
+    public static List<(byte[] Pattern, byte[] Replacement)> BytePatterns(List<RedactPattern> variants, bool allEncodings = true)
     {
         var encodings = new List<Encoding> { new UTF8Encoding(false) };
         if (allEncodings)
@@ -120,15 +150,21 @@ static class Redactor
 
         var list = new List<(byte[], byte[])>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var (pattern, name) in variants)
+        foreach (var v in variants)
         {
             foreach (var enc in encodings)
             {
-                byte[] bytes;
-                try { bytes = enc.GetBytes(pattern); }
-                catch (EncoderFallbackException) { continue; }
+                byte[] bytes, replacement;
+                try
+                {
+                    bytes = enc.GetBytes(v.Pattern);
+                    replacement = enc.GetBytes(v.Replacement);
+                }
+                catch (EncoderFallbackException)
+                {
+                    continue;
+                }
                 if (bytes.Length == 0 || !seen.Add(System.Convert.ToHexString(bytes))) continue;
-                var replacement = enc is UnicodeEncoding ? Encoding.Unicode.GetBytes(Mask(name)) : Encoding.ASCII.GetBytes(Mask(name));
                 list.Add((bytes, replacement));
             }
         }

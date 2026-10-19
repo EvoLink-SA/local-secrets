@@ -43,6 +43,34 @@ sealed partial class EnvFile
     [GeneratedRegex(@"^(?<pre>[ \t]*(?:export[ \t]+)?(?<key>[A-Za-z_][A-Za-z0-9_.\-]*)[ \t]*[=:])(?<rest>.*)$")]
     private static partial Regex AssignRx();
 
+    public const string IgnoreMarker = "# local-secrets: ignore";
+
+    [GeneratedRegex(@"(?im)^[ \t]*#[ \t]*local-secrets[ \t]*:[ \t]*ignore\b")]
+    private static partial Regex IgnoreMarkerRx();
+
+    // Fichier que l'utilisateur ne veut jamais voir converti (fichier de déploiement, par exemple).
+    public static bool HasIgnoreMarker(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists && info.Length < 2_000_000 && IgnoreMarkerRx().IsMatch(File.ReadAllText(path));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool HasIgnoreMarkerText(string text) => IgnoreMarkerRx().IsMatch(text);
+
+    // Même fichier avec une ligne ajoutée en tête, encodage et fins de ligne conservés.
+    public byte[] RenderWithFirstLine(string line)
+    {
+        var text = line + eol + string.Join(eol, Lines);
+        return [.. preamble, .. encoding.GetBytes(text)];
+    }
+
     // Lignes ni vides, ni commentaires, ni affectations : ignorées par le tri, signalées par « secret status ».
     public List<int> UnrecognizedLines()
     {

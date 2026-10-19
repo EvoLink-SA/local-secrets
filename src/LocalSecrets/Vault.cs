@@ -38,9 +38,11 @@ static partial class Vault
     {
         get
         {
+            // Hors d'AppData : Windows redirige les écritures d'AppData des applications empaquetées
+            // (Claude Desktop est un paquet MSIX) vers une copie privée, ce qui donnait deux coffres.
             var custom = Environment.GetEnvironmentVariable("LOCAL_SECRETS_HOME");
             return string.IsNullOrWhiteSpace(custom)
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "local-secrets")
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local-secrets")
                 : Path.GetFullPath(custom);
         }
     }
@@ -58,6 +60,15 @@ static partial class Vault
     private static partial Regex NameRx();
 
     public static bool IsValidName(string name) => NameRx().IsMatch(name);
+
+    // Coffre d'un autre emplacement (ancien coffre, copie de secours), en lecture seule.
+    public static VaultData? LoadFrom(string dir)
+    {
+        var file = Path.Combine(dir, "vault.json");
+        if (!File.Exists(file)) return null;
+        using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return JsonSerializer.Deserialize<VaultData>(fs, Json);
+    }
 
     public static VaultData Load()
     {

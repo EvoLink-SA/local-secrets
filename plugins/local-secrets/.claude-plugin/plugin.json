@@ -1,6 +1,6 @@
 {
   "name": "local-secrets",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Secrets locaux chiffrés par DPAPI : les .env sont protégés au premier accès et Claude utilise les valeurs via secret run sans jamais les voir.",
   "author": {
     "name": "nicolas.vidmer"

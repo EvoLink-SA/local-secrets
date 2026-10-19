@@ -12,6 +12,13 @@ static class Program
         if (!string.IsNullOrEmpty(askpass) && (args.Length == 0 || !Commands.IsKnown(args[0])))
             return Runner.Askpass(askpass, args);
 
+        // Les anciens coffres (AppData, copie privée de Claude Desktop) sont fusionnés dès qu'ils changent.
+        if (args.Length == 0 || !args[0].Equals("migrate", StringComparison.OrdinalIgnoreCase))
+        {
+            try { Legacy.EnsureMerged(); }
+            catch (Exception e) { Log.Write("fusion des anciens coffres impossible : " + e.Message); }
+        }
+
         try
         {
             return Commands.Dispatch(args);
