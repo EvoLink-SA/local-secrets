@@ -58,7 +58,7 @@ static class Legacy
         try
         {
             return File.Exists(StatePath)
-                ? JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(StatePath)) ?? new()
+                ? JsonSerializer.Deserialize(File.ReadAllText(StatePath), JsonContext.Default.DictionaryStringString) ?? new()
                 : new();
         }
         catch
@@ -96,7 +96,7 @@ static class Legacy
             state[dir] = stamp!;
         }
         Directory.CreateDirectory(Vault.Home);
-        File.WriteAllText(StatePath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+        File.WriteAllText(StatePath, JsonSerializer.Serialize(state, JsonContext.Default.DictionaryStringString), new UTF8Encoding(false));
         foreach (var line in report) Log.Write("fusion : " + line);
         return report;
     }

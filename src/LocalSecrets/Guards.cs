@@ -83,10 +83,14 @@ static partial class Guards
     // Refus immédiats, avant toute conversion.
     public static string? CheckForbidden(string text)
     {
-        var m = ForbiddenVerbRx().Match(text);
-        if (m.Success)
-            return $"« secret {m.Groups["verb"].Value.ToLowerInvariant()} » est réservé à l'utilisateur, dans son propre terminal. " +
+        foreach (Match m in ForbiddenVerbRx().Matches(text))
+        {
+            var verb = m.Groups["verb"].Value.ToLowerInvariant();
+            // « secret undo --dry-run » ne fait que lister : autorisé.
+            if (verb is "undo" or "unprotect" && CommandAt(text, m.Index).Contains("--dry-run", StringComparison.Ordinal)) continue;
+            return $"« secret {verb} » est réservé à l'utilisateur, dans son propre terminal. " +
                    "Si c'est nécessaire, demande-lui de le lancer lui-même.";
+        }
         if (ConfigOffRx().IsMatch(text))
             return "Couper le masquage ou autoriser une clé est réservé à l'utilisateur, dans son propre terminal.";
         if (VaultPathRx().IsMatch(text)) return VaultDenied;
@@ -95,6 +99,26 @@ static partial class Guards
             return "local-secrets bloque le déchiffrement direct de secrets (DPAPI, SecureString en clair). " +
                    "Utilise « secret run », qui injecte les valeurs sans les afficher.";
         return null;
+    }
+
+    // La commande qui commence à cet endroit, jusqu'au prochain séparateur (; & | ou fin de ligne).
+    static string CommandAt(string text, int index)
+    {
+        var end = text.IndexOfAny([';', '&', '|', '\n'], index);
+        return end < 0 ? text[index..] : text[index..end];
+    }
+
+    [GeneratedRegex(@"^\s*(?:(?:cd|Set-Location|sl|pushd)\s+(?:""[^""]+""|'[^']+'|[^\s;&|]+)\s*(?:&&|;)\s*)?&?\s*[""']?(?:[^\s""']*[\\/])?secret(?:\.exe)?[""']?\s+(?:status|import|generate|setenv|list|doctor|undo|unprotect|show)\b(?<rest>.*)$", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex SafeSecretCommandRx();
+
+    // Une commande « secret » seule qui n'affiche aucune valeur (status, import, generate...) : elle
+    // peut citer un .env hors du projet ou marqué sans qu'on la bloque. Pas d'enchaînement autorisé.
+    public static bool IsSafeSecretCommand(string command)
+    {
+        var m = SafeSecretCommandRx().Match(command);
+        if (!m.Success) return false;
+        var rest = m.Groups["rest"].Value;
+        return !rest.Contains("&&") && !rest.Contains("||") && !rest.Contains(';') && !rest.Contains('|') && !rest.Contains('\n');
     }
 
     // Pour les outils MCP qui n'exécutent rien : seul l'envoi d'un masque à la place d'une valeur compte.

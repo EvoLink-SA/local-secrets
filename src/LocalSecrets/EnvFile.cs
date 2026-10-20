@@ -64,6 +64,11 @@ sealed partial class EnvFile
 
     public static bool HasIgnoreMarkerText(string text) => IgnoreMarkerRx().IsMatch(text);
 
+    // Lignes données, avec l'encodage et les fins de ligne du fichier d'origine.
+    public byte[] RenderLines(IEnumerable<string> lines) => [.. preamble, .. encoding.GetBytes(string.Join(eol, lines))];
+
+    public static bool IsHeaderLine(string line) => line.TrimStart().StartsWith("# local-secrets: les valeurs", StringComparison.Ordinal);
+
     // Même fichier avec une ligne ajoutée en tête, encodage et fins de ligne conservés.
     public byte[] RenderWithFirstLine(string line)
     {

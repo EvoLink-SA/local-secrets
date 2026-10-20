@@ -12,6 +12,8 @@ static partial class Classifier
     [
         "PASSWORD", "PASSWD", "PASSPHRASE", "SECRET", "TOKEN", "APIKEY", "CREDENTIAL", "PRIVATEKEY",
         "ACCESSKEY", "SECRETKEY", "CONNECTIONSTRING", "CONNSTR", "MOTDEPASSE", "WEBHOOK",
+        // allemand, italien, français
+        "PASSWORT", "KENNWORT", "GEHEIM", "SEGRETO", "JETON",
     ];
 
     static readonly HashSet<string> SensitiveTokens =
@@ -19,6 +21,7 @@ static partial class Classifier
         "PASS", "PWD", "PW", "MDP", "KEY", "KEYS", "PIN", "OTP", "TOTP", "SALT", "PEPPER", "AUTH", "COOKIE",
         "SESSION", "SIGNATURE", "SIGNING", "HMAC", "JWT", "BEARER", "DSN", "CRED", "CREDS", "LICENSE", "LICENCE",
         "SEED", "MNEMONIC", "PRIVATE", "PSK", "COMMUNITY", "ENCRYPTION", "HOOK",
+        "CLE", "CLEF", "SCHLUESSEL", "SCHLUSSEL", "CHIAVE",
     ];
 
     // Une URL de webhook est elle-même le secret : jamais de dérogation pour ces noms.
@@ -42,6 +45,13 @@ static partial class Classifier
         if (annotation == Annotation.Public) return new(false, "annotation @public");
         var v = value.Trim();
         if (v.Length == 0) return new(false, "vide");
+        // ${VAR} est une référence, résolue par Docker ou l'application : on juge le reste de la valeur.
+        var rest = WithoutInterpolation(v);
+        if (rest.Length != v.Length)
+        {
+            if (rest.Trim().Length == 0) return new(false, "référence à une variable");
+            v = rest.Trim();
+        }
         if (StrongShape(v) is { } strong) return new(true, strong);
         if (BoolRx().IsMatch(v)) return new(false, "booléen");
 
@@ -69,6 +79,21 @@ static partial class Classifier
         if (IsHighEntropy(v)) return new(true, "chaîne aléatoire");
         return new(false, "valeur simple");
     }
+
+    // Retire les références ${VAR}, ${VAR:-défaut} et $(commande), et une valeur qui n'est que $VAR :
+    // ce sont des renvois vers d'autres variables, pas des secrets.
+    public static string WithoutInterpolation(string v)
+    {
+        var t = v.Trim();
+        if (BareVariableRx().IsMatch(t)) return "";
+        return t.Contains('$') ? InterpolationRx().Replace(t, "") : t;
+    }
+
+    [GeneratedRegex(@"\$\{[A-Za-z_][A-Za-z0-9_]*(?:[:]?[\-?+=][^}]*)?\}|\$\([^)]*\)")]
+    private static partial Regex InterpolationRx();
+
+    [GeneratedRegex(@"^\$[A-Za-z_][A-Za-z0-9_]*$")]
+    private static partial Regex BareVariableRx();
 
     // Valeur d'un secret trop faible pour être masquée partout : mot courant, court, ou lisible.
     public static bool IsWeakSecret(string v) =>
@@ -224,7 +249,11 @@ static partial class Classifier
 
     // Noms de secret sans ambiguïté. Un mot doit finir par PASSWORD, TOKEN... : TOKENIZER ou
     // SECRETARY ne comptent pas, contrairement au tri des .env qui cherche le mot n'importe où.
-    static readonly string[] StrongWordEndings = ["PASSWORD", "PASSWD", "PASSPHRASE", "SECRET", "SECRETS", "TOKEN", "TOKENS", "APIKEY", "CREDENTIAL", "CREDENTIALS"];
+    static readonly string[] StrongWordEndings =
+    [
+        "PASSWORD", "PASSWD", "PASSPHRASE", "SECRET", "SECRETS", "TOKEN", "TOKENS", "APIKEY", "CREDENTIAL", "CREDENTIALS",
+        "PASSWORT", "KENNWORT", "GEHEIM", "SEGRETO", "JETON", "MOTDEPASSE",
+    ];
     static readonly HashSet<string> StrongExactTokens = ["PASS", "PWD", "PW", "MDP", "PSK"];
     static readonly string[] StrongCompactParts =
         ["APIKEY", "ACCESSKEY", "SECRETKEY", "PRIVATEKEY", "CONNECTIONSTRING", "CONNSTR", "MOTDEPASSE", "CLIENTSECRET", "WEBHOOK", "ACCOUNTKEY", "SHAREDACCESSKEY", "SHAREDACCESSSIGNATURE"];
@@ -247,7 +276,7 @@ static partial class Classifier
     // (utilisé pour les tableaux « NOM   valeur », où un mot ordinaire n'est pas une valeur).
     public static bool IsSecretPair(string key, string value, bool valueMustLookSecret = false)
     {
-        var v = value.Trim();
+        var v = WithoutInterpolation(value).Trim();
         if (v.Length < 4 || IsIgnorableValue(v)) return false;
         if (StrongShape(v) != null) return true;
         var kind = OutputNameKind(key);
@@ -297,7 +326,7 @@ static partial class Classifier
 
     [GeneratedRegex(@"(?<![\w$.])[""']?(?<k>[A-Za-z_][A-Za-z0-9_.\-]{1,60})[""']?[ \t]*[:=][ \t]*(?<v>""[^""\r\n]{1,200}""|'[^'\r\n]{1,200}'|[^\s""'`]{1,200})")] private static partial Regex AssignmentInTextRx();
     [GeneratedRegex(@"^(x{3,}.*|\*+|\.{3,}|changeme|change_me|change-me|example|exemple|placeholder|todo|tbd|secret|password|motdepasse|mot_de_passe|your[_\-].*|my[_\-].*|none|null|undefined|redacted|\[secret:.*\]|\[masqué:.*\]|\[secret:.*|\[masqué:.*)$", RegexOptions.IgnoreCase)] private static partial Regex PlaceholderRx();
-    [GeneratedRegex(@"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+(\(.*)?$|\(")] private static partial Regex CodeReferenceRx();
+    [GeneratedRegex(@"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+(\(.*)?$|\(|^[A-Za-z_][\w.]*\[")] private static partial Regex CodeReferenceRx();
     [GeneratedRegex(@"^(true|false|yes|no|on|off|oui|non|null|none|nil|enabled|disabled)$", RegexOptions.IgnoreCase)] private static partial Regex BoolRx();
     [GeneratedRegex(@"^[+\-]?\d+([.,]\d+)?$")] private static partial Regex NumberRx();
     [GeneratedRegex(@"^\d+(ms|s|m|h|d|w|min|sec)$", RegexOptions.IgnoreCase)] private static partial Regex DurationRx();

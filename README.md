@@ -24,7 +24,8 @@ le fichier.
 
 ## Installation
 
-Prérequis : Windows 10 ou 11, PowerShell 7, le SDK .NET 10 (pour compiler), Claude Code.
+Prérequis : Windows 10 ou 11 (x64), PowerShell 7, Claude Code. Rien d'autre : `secret.exe` est
+livré compilé en natif, sans runtime .NET à installer.
 
 ```powershell
 git clone https://github.com/EvoLink-SA/local-secrets.git
@@ -33,7 +34,7 @@ cd local-secrets
 ```
 
 Le script, sans droits administrateur :
-1. compile `secret.exe` et lance ses tests internes ;
+1. lance les tests internes de `secret.exe` (`-Build` pour le recompiler d'abord, voir Développement) ;
 2. ajoute `plugins\local-secrets\bin` au PATH utilisateur ;
 3. ajoute une ligne à ton profil PowerShell 7 pour le chargement automatique (`-NoShellIntegration` pour s'en passer) ;
 4. déclare la marketplace locale et installe le plugin `local-secrets` dans Claude Code ;
@@ -96,7 +97,9 @@ secrets Docker ou sops pour ça).
 ## Le tri
 
 Une valeur est chiffrée si :
-- le nom de la clé contient PASSWORD, PASS, PWD, SECRET, TOKEN, KEY, AUTH, CREDENTIAL, PRIVATE, SALT, COOKIE, WEBHOOK, etc. ;
+- le nom de la clé contient PASSWORD, PASS, PWD, SECRET, TOKEN, KEY, AUTH, CREDENTIAL, PRIVATE, SALT, COOKIE, WEBHOOK, etc.,
+  ou leurs équivalents français, allemands et italiens (MOTDEPASSE, CLE, PASSWORT, KENNWORT,
+  SCHLUESSEL, GEHEIM, SEGRETO, CHIAVE, JETON) ;
 - ou sa forme trahit un secret : clé PEM, jeton connu (`sk-`, `ghp_`, `AKIA`, JWT...), URL avec
   mot de passe, chaîne de connexion avec `Password=` ;
 - sous un nom anodin, seulement si la valeur est vraiment aléatoire (16 caractères ou plus). Un nom
@@ -104,7 +107,9 @@ Une valeur est chiffrée si :
 
 Restent en clair : IP, FQDN, URL sans identifiants, ports, nombres, booléens, chemins, e-mails,
 images Docker, versions, mots simples, et les noms d'utilisateur. Une clé sensible mais neutre
-(`PASSWORD_MIN_LENGTH=12`, `SSH_KEY_PATH=C:\...`, `TOKEN_URL=https://...`) reste lisible.
+(`PASSWORD_MIN_LENGTH=12`, `SSH_KEY_PATH=C:\...`, `TOKEN_URL=https://...`) reste lisible. Les
+renvois à d'autres variables aussi : `${DB_PASS}`, `$DB_PASS`, `${REDIS_PASSWORD:-x}` ou
+`postgres://${DB_USER}:${DB_PASS}@db/app` ne contiennent aucun secret, ils restent tels quels.
 
 Pour un nom de secret, le tri chiffre dans le doute : une valeur chiffrée à tort ne casse rien,
 Claude ne la voit simplement pas. Pour forcer le choix, ajoute un commentaire en fin de ligne :
@@ -187,6 +192,16 @@ ajoute cette ligne dedans :
 Il ne sera plus jamais converti, ni par Claude ni par `secret import`, et Claude ne pourra pas le
 lire tant qu'il contient des secrets en clair.
 
+Claude peut quand même faire évoluer un tel fichier sans le lire :
+- `secret generate CLÉ --env FICHIER --clear` y écrit une valeur aléatoire solide (32 caractères,
+  `--length N` pour changer), jamais affichée ;
+- `secret setenv FICHIER CLÉ VALEUR` y écrit une valeur publique (port, hôte, nom), et refuse ce
+  qui ressemble à un secret ;
+- `secret status FICHIER` lui montre les clés présentes et leur état, sans les valeurs.
+
+Sans `--clear`, `secret generate CLÉ` met la valeur au coffre et écrit la référence dans le `.env`
+du dossier courant : c'est le bon réflexe pour un nouveau mot de passe de base de données.
+
 ## Annuler des conversions
 
 Chaque conversion garde une copie chiffrée du fichier d'origine. Dans ton terminal :
@@ -224,6 +239,8 @@ coffre, Claude Desktop ne voit que sa copie.
 | `secret run [options] -- CMD` | lancer CMD avec les secrets, sortie masquée | oui |
 | `secret list [--ns ESPACE]` | noms des secrets | oui |
 | `secret set NOM [--env F] [--file F]` | enregistrer un secret (saisie masquée) | via un tuyau |
+| `secret generate CLÉ [--env F] [--length N] [--clear]` | créer une valeur aléatoire sans l'afficher | oui |
+| `secret setenv FICHIER CLÉ VALEUR` | écrire une valeur publique dans un `.env` sans le lire | oui |
 | `secret protect FICHIER CLÉ` | forcer le chiffrement d'une clé | oui |
 | `secret scrub [--dry-run] [--ask]` | effacer les valeurs des fichiers locaux de Claude Code | oui |
 | `secret config` | réglages du masquage et de la conversion | oui |
@@ -235,6 +252,7 @@ coffre, Claude Desktop ne voit que sa copie.
 | `secret shell` | terminal avec les secrets injectés | **non** |
 | `secret env` | utilisé par le profil PowerShell | **non** |
 | `secret unprotect FICHIER CLÉ` | remettre une clé en clair (`# @public`) | **non** |
+| `secret unprotect --all \| --under DOSSIER [--ignore]` | remettre en clair tous les `.env` connus du coffre | **non** (sauf `--dry-run`) |
 | `secret undo [FICHIER \| --under DOSSIER] [--since DATE] [--ignore]` | restaurer des `.env` d'avant conversion | **non** (sauf `--dry-run`) |
 | `secret migrate [--from DOSSIER]` | fusionner les anciens coffres dans le coffre unique | oui |
 | `secret rm NOM` | supprimer un secret | **non** |
@@ -283,6 +301,12 @@ autrement ne les reçoit pas.
 **Identifiants Windows.** Voir le skill : un `PSCredential` est construit en mémoire dans un
 `pwsh -Command '...'` lancé par `secret run`.
 
+**Autres fichiers d'identifiants.** `.pgpass` (ou `pgpass.conf`), `.netrc` (`_netrc`),
+`.git-credentials` et `.aws\credentials` ne sont pas des `.env` : ils ne sont jamais convertis,
+mais Claude ne peut pas les lire, et leur contenu est masqué s'il apparaît dans une sortie
+(`cat ~/.pgpass` sur un serveur, par exemple). Les fichiers INI avec espaces (`password = ...`,
+comme `my.cnf`) sont masqués de la même façon.
+
 ## Ce que ça protège, et ce que ça ne protège pas
 
 Protégé :
@@ -314,6 +338,11 @@ secret backup D:\coffre.lsbackup      # phrase de passe demandée, 12 caractère
 secret restore D:\coffre.lsbackup     # sur la nouvelle machine
 ```
 
+Sans sauvegarde depuis 30 jours, Claude Code te le rappelle au démarrage d'une session, une fois
+par semaine au plus, et `secret doctor` le signale. Range le fichier hors du PC (clé USB, NAS) et
+la phrase de passe à part : la perte du profil Windows ou une réinitialisation du mot de passe par
+un administrateur rend le coffre illisible.
+
 ## Où sont les fichiers
 
 | Quoi | Où |
@@ -329,29 +358,40 @@ secret restore D:\coffre.lsbackup     # sur la nouvelle machine
 
 ## Désinstaller
 
+Dans ton terminal, depuis le dossier du dépôt :
+
 ```powershell
-claude plugin uninstall local-secrets@local-secrets
-claude plugin marketplace remove local-secrets
+.\uninstall.ps1
 ```
 
-Retire ensuite `plugins\local-secrets\bin` du PATH utilisateur, et la ligne marquée
-`# local-secrets` de ton profil PowerShell (`notepad $PROFILE.CurrentUserAllHosts`). Le coffre
-reste en place : fais un `secret backup` avant de le supprimer, et un `secret undo` sur les `.env`
-que tu veux retrouver en clair.
+Le script montre d'abord les `.env` qui contiennent des références `secret://` et propose de les
+remettre en clair (`secret unprotect --all`) : sans ça, ces fichiers ne fonctionneraient plus une
+fois l'outil retiré. Il retire ensuite le plugin, la marketplace, la ligne du profil PowerShell et
+l'entrée du PATH. Le coffre (`%USERPROFILE%\.local-secrets`) reste en place : fais un
+`secret backup` avant de le supprimer toi-même.
 
 ## Développement
 
 ```powershell
-.\build.ps1                 # compile et lance secret selftest
+.\build.ps1                 # compile en natif (Native AOT) et lance secret selftest
 .\tests\e2e.ps1             # tests de bout en bout : CLI, hooks, terminal, fenêtre, WSL
 claude --plugin-dir .\plugins\local-secrets    # essayer le plugin sans l'installer
 ```
+
+La compilation native demande le SDK .NET 10 et les outils C++ de Visual Studio (charge
+« Développement Desktop en C++ »). Sans eux, `.\build.ps1 -FrameworkDependent` produit un exe qui
+exige le runtime .NET 10 sur chaque poste. Le `secret.exe` versionné dans `plugins\local-secrets\bin`
+est celui que reçoivent les collègues : recompile et commite-le à chaque version.
 
 `LOCAL_SECRETS_HOME` permet de pointer vers un autre coffre, pour les tests.
 
 ## Dépannage
 
-- `secret doctor` vérifie DPAPI, le coffre, le PATH, le plugin et l'agent ssh.
+- `secret doctor` vérifie DPAPI, le coffre, le PATH, le plugin et l'agent ssh, signale une
+  sauvegarde trop ancienne et un écart de version entre `secret` et les hooks de Claude.
+- « secret.exe introuvable » au démarrage d'une session : les hooks passent par `hook.cmd`, qui
+  bloque alors toute lecture de `.env` (rien ne part en clair) et laisse passer le reste. Relance
+  `install.ps1`.
 - `[secret:espace/CLÉ]` dans une sortie : valeur du coffre masquée, le programme a reçu la vraie.
 - `[masqué:CLÉ]` : valeur repérée comme sensible, masquée et non stockée.
 - « références absentes du coffre » : le `.env` cite un secret qui n'existe pas sur ce PC (projet

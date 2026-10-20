@@ -29,6 +29,9 @@ static class BackupCmd
 
         File.WriteAllText(file, EncryptPayload(Encoding.UTF8.GetBytes(plain.ToJsonString()), pass), new UTF8Encoding(false));
         Console.WriteLine($"{secrets.Count} secret(s) sauvegardé(s) dans {file}.");
+        var settings = Settings.Load();
+        settings.LastBackup = DateTime.Now;
+        settings.Save();
         Console.WriteLine("Garde la phrase de passe à part : sans elle, la sauvegarde est illisible.");
         return 0;
     }
@@ -80,7 +83,7 @@ static class BackupCmd
             ["tag"] = Convert.ToBase64String(tag),
             ["data"] = Convert.ToBase64String(cipher),
         };
-        return o.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        return o.ToJsonString(new JsonSerializerOptions { WriteIndented = true, TypeInfoResolver = JsonContext.Default });
     }
 
     public static byte[] DecryptPayload(string json, string passphrase)

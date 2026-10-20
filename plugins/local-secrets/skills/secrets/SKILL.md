@@ -204,7 +204,11 @@ des valeurs. C'est la première source d'ennuis. Donc :
 - **Fichier hors projet refusé** : le message dit « n'appartient pas au projet ouvert ». Propose
   d'ouvrir Claude dans le projet de ce fichier, ne cherche pas à le lire autrement.
 - **Fichier de déploiement** (un `.env` qui doit garder ses vraies valeurs, envoyé tel quel sur un
-  serveur) : propose à l'utilisateur d'y ajouter la ligne `# local-secrets: ignore`.
+  serveur) : propose à l'utilisateur d'y ajouter la ligne `# local-secrets: ignore`. Un fichier
+  marqué n'est jamais converti et tu ne peux pas le lire s'il contient des secrets en clair, mais
+  tu peux le faire évoluer sans le voir : `secret status FICHIER` pour les clés présentes,
+  `secret setenv FICHIER CLÉ VALEUR` pour une valeur publique, `secret generate CLÉ --env FICHIER --clear`
+  pour un nouveau mot de passe. Ne demande pas à l'utilisateur de retirer le marqueur pour ça.
 - **« références absentes du coffre »** : en principe réglé depuis la 0.1.3 (coffre unique). Si ça
   arrive encore, propose à l'utilisateur de lancer `secret migrate` dans son terminal.
 - **Message bloqué** : si l'utilisateur dit que son message a été refusé, c'est le détecteur de
@@ -223,12 +227,23 @@ des valeurs. C'est la première source d'ennuis. Donc :
 - `secret import --stdin` : importer un `.env` reçu par un tuyau (depuis un serveur).
 - `secret show [FICHIER|NOM]` : montrer des valeurs à l'utilisateur, dans une fenêtre à part.
 - `secret protect FICHIER CLÉ` : chiffrer une valeur que le tri a laissée en clair à tort.
-- Ajouter ou modifier une valeur dans un `.env` : écris-la normalement, elle est chiffrée juste après.
+- `secret generate CLÉ [--env FICHIER] [--length N]` : créer un mot de passe, une clé ou un jeton
+  aléatoire (32 caractères par défaut) sans jamais le voir. La valeur va au coffre, la référence
+  dans le `.env`. C'est la bonne façon de créer le mot de passe d'une nouvelle base ou d'un
+  nouveau service : n'invente jamais une valeur toi-même, elle finirait dans le transcript.
+- `secret setenv FICHIER CLÉ VALEUR` : écrire une valeur publique (port, hôte, nom) dans un `.env`
+  sans le lire. Refusé pour une valeur qui ressemble à un secret.
+- `secret undo ... --dry-run`, `secret unprotect --all --dry-run` : montrer à l'utilisateur ce que
+  ces commandes changeraient. Sans `--dry-run`, elles lui sont réservées.
+- Ajouter ou modifier une valeur publique dans un `.env` : écris-la normalement. Une valeur
+  sensible que l'utilisateur t'a donnée est chiffrée juste après, mais elle reste dans le transcript.
 
 ## Ce que tu ne fais jamais
 
 - Afficher une valeur : pas de `echo`, `printenv`, `Get-ChildItem env:`, `docker compose config`
   hors `secret run`, pas de lecture du coffre ni de déchiffrement DPAPI à la main.
+- Lire un fichier d'identifiants : clé privée, `.pgpass`, `.netrc`, `.git-credentials`,
+  `.aws\credentials` (le hook refuse). Les programmes qui en ont besoin les lisent eux-mêmes.
 - Écrire une valeur en clair dans un fichier qui n'est pas un `.env` (config, script, YAML).
   Préfère une variable d'environnement lue au lancement. Si un fichier doit vraiment contenir
   la valeur, demande d'abord à l'utilisateur.
@@ -250,4 +265,7 @@ des valeurs. C'est la première source d'ennuis. Donc :
   poste, par exemple). L'utilisateur le recrée avec `secret set espace/CLÉ` ou restaure une sauvegarde.
 - Une valeur a été chiffrée alors qu'elle devait rester lisible (une URL, un nom) : l'utilisateur
   lance `secret unprotect FICHIER CLÉ` dans son terminal, elle sera marquée `# @public`.
+- « secret.exe introuvable » au démarrage, ou lecture de `.env` refusée « par sécurité » : le
+  plugin est cassé ou en cours de mise à jour. Toute lecture de `.env` est bloquée, le reste
+  fonctionne. Propose à l'utilisateur de relancer `install.ps1` puis Claude Code.
 - Vérifier l'installation : `secret doctor`.

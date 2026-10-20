@@ -36,6 +36,20 @@ static partial class Paths
     public static bool IsEnvFile(string? fullPath) =>
         fullPath != null && IsEnvFileName(Path.GetFileName(fullPath)) && File.Exists(fullPath);
 
+    static readonly HashSet<string> CredentialFileNames = new(StringComparer.OrdinalIgnoreCase)
+        { ".pgpass", "pgpass.conf", ".netrc", "_netrc", ".git-credentials" };
+
+    // Fichiers d'identifiants bien connus, qui ne sont pas des .env : jamais lus par Claude.
+    public static bool IsCredentialFile(string fullPath) => IsCredentialFileName(fullPath) && File.Exists(fullPath);
+
+    public static bool IsCredentialFileName(string fullPath)
+    {
+        var name = Path.GetFileName(fullPath);
+        if (CredentialFileNames.Contains(name)) return true;
+        return name.Equals("credentials", StringComparison.OrdinalIgnoreCase)
+               && Path.GetFileName(Path.GetDirectoryName(fullPath) ?? "").Equals(".aws", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsPrivateKeyFile(string fullPath)
     {
         var name = Path.GetFileName(fullPath);

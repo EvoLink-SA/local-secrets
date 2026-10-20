@@ -14,7 +14,7 @@ static partial class Commands
     [
         "help", "--help", "-h", "version", "--version", "set", "list", "ls", "status", "import", "protect", "unprotect",
         "run", "shell", "reveal", "rm", "remove", "undo", "backup", "restore", "scrub", "doctor", "selftest", "hook", "config",
-        "show", "env", "migrate",
+        "show", "env", "migrate", "generate", "setenv",
     ];
 
     public static bool IsKnown(string arg) => Known.Contains(arg, StringComparer.OrdinalIgnoreCase);
@@ -48,6 +48,8 @@ static partial class Commands
             case "show": return ShowCmd.Run(rest);
             case "env": return EnvCmd.Run(rest);
             case "migrate": return Migrate(rest);
+            case "generate": return Generate(rest);
+            case "setenv": return SetEnv(rest);
             case "doctor": return Doctor.Run();
             case "selftest": return SelfTest.Run();
             case "hook": return Hooks.Run(rest.Length > 0 ? rest[0] : "");
@@ -77,11 +79,17 @@ static partial class Commands
               secret set NOM [--env FICHIER] [--file FICHIER_VALEUR]
                                                enregistre un secret, saisie masquée ; NOM = CLÉ ou espace/CLÉ
               secret protect FICHIER CLÉ...    force le chiffrement de clés laissées en clair
+              secret generate CLÉ [--env FICHIER] [--length N] [--clear]
+                                               crée une valeur aléatoire solide sans l'afficher : au coffre
+                                               (référence dans le .env), ou en clair dans un fichier marqué
+              secret setenv FICHIER CLÉ VALEUR écrit une valeur non sensible dans un .env sans le lire
 
             Réservé à ton terminal (refusé quand c'est Claude qui lance)
               secret reveal NOM                affiche une valeur
               secret shell                     ouvre un shell avec les secrets du .env injectés
               secret unprotect FICHIER CLÉ     remet une clé en clair, marquée @public
+              secret unprotect --all | --under DOSSIER [--ignore] [--dry-run]
+                                               remet en clair toutes les références (avant une désinstallation)
               secret undo [FICHIER | --under DOSSIER] [--since "AAAA-MM-JJ HH:MM"] [--ignore] [--force] [--dry-run]
                                                restaure des .env tels qu'avant leur conversion ; --ignore les
                                                marque pour ne plus être convertis ; --dry-run liste sans rien faire
@@ -370,10 +378,80 @@ static partial class Commands
         return 0;
     }
 
+    // Remet en clair toutes les références des fichiers connus du coffre (avant une désinstallation,
+    // ou pour sortir un dossier du système). --dry-run liste sans rien toucher.
+    static int UnprotectMany(string[] args)
+    {
+        string? under = null;
+        bool ignore = false, dryRun = false, all = false;
+        for (var i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--all": all = true; break;
+                case "--under": under = Path.TrimEndingDirectorySeparator(Paths.Normalize(Arg(args, ++i, "--under"))); break;
+                case "--ignore": ignore = true; break;
+                case "--dry-run": dryRun = true; break;
+                default: throw new UserError($"option inconnue : {args[i]}");
+            }
+        }
+        if (!all && under == null) throw new UserError("usage : secret unprotect --all | --under DOSSIER [--ignore] [--dry-run]");
+        if (!dryRun) Ui.RequireInteractive("secret unprotect");
+
+        var vault = Vault.Load();
+        var files = vault.Namespaces.Values.Select(n => n.Path)
+            .Concat(vault.Secrets.Values.Select(e => e.Origin).OfType<string>())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(Paths.Normalize)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(File.Exists)
+            .Where(f => under == null || f.StartsWith(under + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var plan = new List<(string File, EnvFile Env, Dictionary<EnvAssignment, string> Map)>();
+        var missing = new List<string>();
+        foreach (var f in files)
+        {
+            var env = EnvFile.Load(f);
+            var map = new Dictionary<EnvAssignment, string>();
+            foreach (var a in env.Assignments)
+            {
+                if (a.Reference is not { } name) continue;
+                var value = Vault.TryGet(vault, name);
+                if (value == null) missing.Add(name);
+                else map[a] = EnvFile.Quote(value);
+            }
+            if (map.Count == 0) continue;
+            plan.Add((f, env, map));
+            Console.WriteLine($"  {f} : {map.Count} valeur(s) à remettre en clair");
+        }
+        if (missing.Count > 0) Console.WriteLine("  références absentes du coffre, laissées telles quelles : " + string.Join(", ", missing.Distinct()));
+        var total = plan.Sum(p => p.Map.Count);
+        if (dryRun || plan.Count == 0)
+        {
+            Console.WriteLine(dryRun ? $"Simulation : {total} valeur(s) dans {plan.Count} fichier(s)." : "Rien à remettre en clair.");
+            return 0;
+        }
+        if (!Ui.Confirm($"Remettre en clair {total} valeur(s) dans {plan.Count} fichier(s) ?" +
+                        (ignore ? " Ils seront marqués pour ne plus jamais être convertis." : "")))
+            return 1;
+        foreach (var (file, env, map) in plan)
+        {
+            var rendered = EnvFile.Parse(env.Render(map, addHeader: false));
+            var lines = rendered.Lines.Where(l => !EnvFile.IsHeaderLine(l)).ToList();
+            if (ignore && !lines.Any(EnvFile.HasIgnoreMarkerText)) lines.Insert(0, EnvFile.IgnoreMarker);
+            EnvFile.WriteInPlace(file, rendered.RenderLines(lines));
+        }
+        Console.WriteLine($"{total} valeur(s) remise(s) en clair dans {plan.Count} fichier(s). Les secrets restent aussi dans le coffre.");
+        return 0;
+    }
+
     static int Unprotect(string[] args)
     {
+        if (args.Length > 0 && args[0] is "--all" or "--under" or "--dry-run" or "--ignore") return UnprotectMany(args);
         Ui.RequireInteractive("secret unprotect");
-        if (args.Length < 2) throw new UserError("usage : secret unprotect FICHIER CLÉ");
+        if (args.Length < 2) throw new UserError("usage : secret unprotect FICHIER CLÉ  |  secret unprotect --all | --under DOSSIER [--ignore] [--dry-run]");
         var file = Path.GetFullPath(args[0]);
         var key = args[1];
         var env = EnvFile.Load(file);
@@ -577,6 +655,84 @@ static partial class Commands
             default:
                 throw new UserError("usage : secret config [masking on|off [--here|--project CHEMIN] | allow CLÉ... | disallow CLÉ...]");
         }
+    }
+
+    const string GenerateAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    // Crée une valeur aléatoire solide sans jamais l'afficher. Par défaut au coffre, avec une
+    // référence dans le .env ; avec --clear, écrite en clair dans le fichier (fichier marqué
+    // « ignore », lu tel quel par Docker ou envoyé sur un serveur).
+    static int Generate(string[] args)
+    {
+        string? key = null, envPath = null;
+        var length = 32;
+        var clear = false;
+        for (var i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--env": envPath = Arg(args, ++i, "--env"); break;
+                case "--length":
+                    if (!int.TryParse(Arg(args, ++i, "--length"), out length) || length is < 12 or > 256)
+                        throw new UserError("--length attend un nombre entre 12 et 256.");
+                    break;
+                case "--clear": clear = true; break;
+                default:
+                    if (args[i].StartsWith('-')) throw new UserError($"option inconnue : {args[i]}");
+                    key = args[i];
+                    break;
+            }
+        }
+        if (key == null || !KeyRx().IsMatch(key)) throw new UserError("usage : secret generate CLÉ [--env FICHIER] [--length N] [--clear]");
+        var file = Paths.Normalize(envPath ?? Path.Combine(Environment.CurrentDirectory, ".env"));
+        if (!clear && EnvFile.HasIgnoreMarker(file))
+            throw new UserError($"{file} est marqué « {EnvFile.IgnoreMarker} » : une référence secret:// n'y servirait à rien. Ajoute --clear.");
+        var value = System.Security.Cryptography.RandomNumberGenerator.GetString(GenerateAlphabet, length);
+
+        if (clear)
+        {
+            WriteAssignment(file, key, EnvFile.Quote(value));
+            Console.WriteLine($"{key} généré ({length} caractères) et écrit en clair dans {file}. La valeur n'est affichée nulle part.");
+            return 0;
+        }
+        var preferred = File.Exists(file) ? Converter.PreferredNamespace(EnvFile.Load(file)) : null;
+        var full = Vault.Update(d =>
+        {
+            var n = Vault.NamespaceForFile(d, file, preferred) + "/" + key;
+            Vault.Set(d, n, value, file);
+            return n;
+        });
+        AddReference(file, key, full);
+        Console.WriteLine($"« {full} » généré ({length} caractères) et enregistré dans le coffre. Référence écrite dans {file}.");
+        return 0;
+    }
+
+    // Écrit une valeur non sensible dans un .env sans que l'appelant ait à le lire (fichier marqué).
+    static int SetEnv(string[] args)
+    {
+        if (args.Length != 3) throw new UserError("usage : secret setenv FICHIER CLÉ VALEUR");
+        var (file, key, value) = (Paths.Normalize(args[0]), args[1], args[2]);
+        if (!KeyRx().IsMatch(key)) throw new UserError($"nom de variable invalide : {key}");
+        if (Classifier.Classify(key, value, Annotation.None).Secret)
+            throw new UserError($"{key} ressemble à un secret : utilise « secret set {key} » (saisie masquée) ou « secret generate {key} ».");
+        WriteAssignment(file, key, EnvFile.Quote(value));
+        Console.WriteLine($"{key} mis à jour dans {file}.");
+        return 0;
+    }
+
+    // Remplace la valeur d'une clé existante, ou ajoute la ligne, sans rien changer d'autre au fichier.
+    static void WriteAssignment(string file, string key, string rawValue)
+    {
+        if (!File.Exists(file))
+        {
+            File.WriteAllText(file, $"{key}={rawValue}\n", new UTF8Encoding(false));
+            return;
+        }
+        var env = EnvFile.Load(file);
+        var existing = env.Assignments.LastOrDefault(a => a.Key == key);
+        var map = new Dictionary<EnvAssignment, string>();
+        if (existing != null) map[existing] = rawValue;
+        EnvFile.WriteInPlace(file, env.Render(map, addHeader: false, append: existing == null ? [$"{key}={rawValue}"] : null));
     }
 
     // Fusion forcée des anciens coffres, ou d'une copie donnée avec --from, avec compte rendu.

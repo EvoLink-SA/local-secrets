@@ -50,12 +50,6 @@ static partial class Vault
     public static string FilePath => Path.Combine(Home, "vault.json");
     public static string BackupDir => Path.Combine(Home, "backups");
 
-    static readonly JsonSerializerOptions Json = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
-
     [GeneratedRegex(@"^[a-z0-9][a-z0-9._\-]*/[A-Za-z_][A-Za-z0-9_.\-]*$")]
     private static partial Regex NameRx();
 
@@ -67,7 +61,7 @@ static partial class Vault
         var file = Path.Combine(dir, "vault.json");
         if (!File.Exists(file)) return null;
         using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        return JsonSerializer.Deserialize<VaultData>(fs, Json);
+        return JsonSerializer.Deserialize(fs, JsonContext.Default.VaultData);
     }
 
     public static VaultData Load()
@@ -78,7 +72,7 @@ static partial class Vault
             try
             {
                 using var fs = new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                return JsonSerializer.Deserialize<VaultData>(fs, Json) ?? new VaultData();
+                return JsonSerializer.Deserialize(fs, JsonContext.Default.VaultData) ?? new VaultData();
             }
             catch (IOException) when (attempt < 5)
             {
@@ -112,7 +106,7 @@ static partial class Vault
     {
         Directory.CreateDirectory(Home);
         var tmp = FilePath + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(data, Json), new UTF8Encoding(false));
+        File.WriteAllText(tmp, JsonSerializer.Serialize(data, JsonContext.Default.VaultData), new UTF8Encoding(false));
         for (var attempt = 0; ; attempt++)
         {
             try
@@ -261,7 +255,7 @@ static partial class Vault
             Data = Convert.ToBase64String(Native.Protect(original, Entropy("backup"))),
         };
         var file = Path.Combine(BackupDir, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Guid.NewGuid().ToString("N")[..8]}.json");
-        File.WriteAllText(file, JsonSerializer.Serialize(record, Json), new UTF8Encoding(false));
+        File.WriteAllText(file, JsonSerializer.Serialize(record, JsonContext.Default.EnvBackup), new UTF8Encoding(false));
 
         // On garde les 10 dernières sauvegardes de chaque fichier.
         foreach (var old in ListBackups()
@@ -279,7 +273,7 @@ static partial class Vault
         {
             try
             {
-                var record = JsonSerializer.Deserialize<EnvBackup>(File.ReadAllText(file), Json);
+                var record = JsonSerializer.Deserialize(File.ReadAllText(file), JsonContext.Default.EnvBackup);
                 if (record != null) list.Add((file, record));
             }
             catch

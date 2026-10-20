@@ -328,6 +328,62 @@ try {
     Remove-Item Env:LOCAL_SECRETS_LEGACY_DIRS
     $env:LOCAL_SECRETS_HOME = $savedHome
 
+    '0.1.4 : generate, setenv, fichiers marqués, fichiers d''identifiants, désinstallation, rappel de sauvegarde'
+    $out = & $Exe generate GEN_PASSWORD | Out-String
+    $len = & $Exe run -- pwsh -NoProfile -Command '$env:GEN_PASSWORD.Length' | Out-String
+    Check ($LASTEXITCODE -eq 0 -and [IO.File]::ReadAllText($envPath).Contains('GEN_PASSWORD=secret://monprojet/GEN_PASSWORD') -and $len.Trim() -eq '32') 'generate : valeur de 32 caractères au coffre, référence dans le .env'
+    Check ($out -notmatch '[A-Za-z0-9]{32}') 'generate : valeur jamais affichée'
+
+    $kb = Join-Path $deploy 'kb.env'
+    $before = [IO.File]::ReadAllText($kb)
+    $out = & $Exe generate KB_API_TOKEN --env $kb 2>&1 | Out-String
+    Check ($LASTEXITCODE -ne 0 -and [IO.File]::ReadAllText($kb) -eq $before) 'generate sur un fichier marqué ignore : refusé sans --clear'
+    $out = & $Exe generate KB_API_TOKEN --env $kb --clear 2>&1 | Out-String
+    $after = [IO.File]::ReadAllText($kb)
+    Check ($LASTEXITCODE -eq 0 -and $after -match 'KB_API_TOKEN=[A-Za-z0-9]{32}' -and -not $after.Contains('secret://') -and $out -notmatch '[A-Za-z0-9]{32}') 'generate --clear : valeur écrite en clair dans le fichier marqué, jamais affichée'
+    & $Exe setenv $kb KB_PORT 5433 | Out-Null
+    Check ([IO.File]::ReadAllText($kb).Contains('KB_PORT=5433')) 'setenv : valeur publique écrite dans le fichier marqué'
+    & $Exe setenv $kb KB_PASSWORD 'Zq8!rT4#pLm' 2>&1 | Out-Null
+    Check ($LASTEXITCODE -ne 0 -and -not [IO.File]::ReadAllText($kb).Contains('KB_PASSWORD')) 'setenv : valeur sensible refusée'
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = "secret status '$kb'" } }
+    Check ($res.Trim().Length -eq 0) 'secret status sur un fichier marqué : autorisé'
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = "cat '$kb'" } }
+    Check ($res.Contains('"permissionDecision":"deny"')) 'cat sur un fichier marqué avec secrets en clair : refusé'
+
+    $pgpass = Join-Path $proj '.pgpass'
+    [IO.File]::WriteAllText($pgpass, "db.local:5432:app:appuser:Zq8rT4pLmX9`n")
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; tool_input = @{ file_path = $pgpass } }
+    Check ($res.Contains('"permissionDecision":"deny"')) 'Read d''un .pgpass : refusé'
+    $res = Hook 'post-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = 'cat ~/.pgpass' }; tool_response = @{ stdout = "db.local:5432:app:appuser:Zq8rT4pLmX9`n"; stderr = ''; interrupted = $false; isImage = $false } }
+    Check ($res.Contains('updatedToolOutput') -and -not $res.Contains('Zq8rT4pLmX9')) 'sortie d''un .pgpass : mot de passe masqué'
+
+    $out = & $Exe unprotect --all --dry-run 2>&1 | Out-String
+    Check ($LASTEXITCODE -eq 0 -and $out.Contains('Simulation') -and $out.Contains('monprojet')) 'unprotect --all --dry-run : fichiers listés, rien modifié'
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = 'secret unprotect --all --dry-run' } }
+    Check ($res.Trim().Length -eq 0) 'unprotect --all --dry-run : autorisé pour Claude'
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = 'secret unprotect --all --dry-run; secret unprotect --all' } }
+    Check ($res.Contains('"permissionDecision":"deny"')) 'dry-run suivi de la vraie commande : refusé'
+
+    $nobin = Join-Path $root 'sans-exe'
+    New-Item -ItemType Directory -Force $nobin | Out-Null
+    Copy-Item (Join-Path (Split-Path $Exe) 'hook.cmd') $nobin
+    $cmdHook = Join-Path $nobin 'hook.cmd'
+    '{"tool_name":"Read","tool_input":{"file_path":"C:\\p\\.env"}}' | cmd /d /c $cmdHook pre-tool-use 2>$null | Out-Null
+    Check ($LASTEXITCODE -eq 2) 'secret.exe absent : lecture d''un .env bloquée par hook.cmd'
+    '{"tool_name":"Read","tool_input":{"file_path":"C:\\p\\README.md"}}' | cmd /d /c $cmdHook pre-tool-use 2>$null | Out-Null
+    Check ($LASTEXITCODE -eq 0) 'secret.exe absent : le reste passe'
+    $warn = '{}' | cmd /d /c $cmdHook session-start | Out-String
+    Check ($warn.Contains('systemMessage')) 'secret.exe absent : avertissement au démarrage de session'
+
+    $savedHome = $env:LOCAL_SECRETS_HOME
+    $env:LOCAL_SECRETS_HOME = Join-Path $root 'rappel'
+    $empty = Join-Path $root 'vide'; New-Item -ItemType Directory -Force $empty | Out-Null
+    'Valeur-Rappel-9!x' | & $Exe set rappel/TOKEN | Out-Null
+    $r1 = Hook 'session-start' @{ source = 'startup'; cwd = $empty }
+    $r2 = Hook 'session-start' @{ source = 'startup'; cwd = $empty }
+    Check ($r1.Contains('secret backup') -and -not $r2.Contains('secret backup')) 'rappel de sauvegarde : affiché une fois, pas à chaque session'
+    $env:LOCAL_SECRETS_HOME = $savedHome
+
     'Non-régression : faux positifs du masquage générique'
     $hooksJson = Get-Content -Raw (Join-Path $PSScriptRoot '..\plugins\local-secrets\hooks\hooks.json')
     $res = Hook 'post-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = 'cat hooks.json' }; tool_response = @{ stdout = $hooksJson; stderr = ''; interrupted = $false; isImage = $false } }

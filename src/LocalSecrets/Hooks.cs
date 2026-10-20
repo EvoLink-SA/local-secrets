@@ -87,6 +87,7 @@ static class Hooks
             if (WriteTools.Contains(tool) && WritesMask(ti, full)) return Deny(Guards.MaskDenied);
             if (Paths.IsEnvFile(full) && Protect(full, converted, root) is { } refused) return Deny(refused);
             if (tool == "Read" && Paths.IsPrivateKeyFile(full)) return Deny(PrivateKeyMessage(full));
+            if (tool == "Read" && Paths.IsCredentialFile(full)) return Deny(CredentialFileMessage(full));
         }
         else if (tool == "Grep")
         {
@@ -99,14 +100,16 @@ static class Hooks
             {
                 if (Paths.IsEnvFile(full) && Protect(full, converted, root) is { } refused) return Deny(refused);
                 if (Paths.IsPrivateKeyFile(full)) return Deny(PrivateKeyMessage(full));
+                if (Paths.IsCredentialFile(full)) return Deny(CredentialFileMessage(full));
             }
         }
         else if (ShellTools.Contains(tool))
         {
             var command = Str(ti, "command") ?? "";
             if (Guards.CheckForbidden(command) is { } forbidden) return Deny(forbidden);
-            foreach (var f in Guards.EnvFilesIn(command, cwd))
-                if (Protect(f, converted, root) is { } refused) return Deny(refused, converted);
+            if (!Guards.IsSafeSecretCommand(command))
+                foreach (var f in Guards.EnvFilesIn(command, cwd))
+                    if (Protect(f, converted, root) is { } refused) return Deny(refused, converted);
             if (Guards.CheckCommand(command, cwd) is { } reason) return Deny(reason, converted);
         }
         else if (tool.StartsWith("mcp__", StringComparison.Ordinal))
@@ -253,7 +256,6 @@ static class Hooks
 
         // Lecture seule : le démarrage ne convertit plus rien, il liste ce qui est déjà protégé.
         var files = Paths.FindEnvFiles(dir, maxDepth: 2, maxEntries: 5000);
-        var converted = new List<ConversionReport>();
 
         var protectedFiles = new List<string>();
         foreach (var f in files)
@@ -268,7 +270,9 @@ static class Hooks
                 // fichier illisible : ignoré
             }
         }
-        if (protectedFiles.Count == 0) return null;
+        var reminder = BackupReminder();
+        if (protectedFiles.Count == 0)
+            return reminder == null ? null : new JsonObject { ["systemMessage"] = reminder };
 
         var context =
             "local-secrets est actif sur ce poste. Les valeurs sensibles des fichiers .env sont chiffrées dans un coffre local " +
@@ -290,10 +294,29 @@ static class Hooks
         {
             ["hookSpecificOutput"] = new JsonObject { ["hookEventName"] = "SessionStart", ["additionalContext"] = context },
         };
-        if (converted.Count > 0)
-            o["systemMessage"] = "local-secrets : " + string.Join(" ; ", converted.Select(r =>
-                $"{Path.GetRelativePath(dir, r.FilePath)} converti, {r.Encrypted.Count} valeur(s) chiffrée(s) ({string.Join(", ", r.Encrypted.Select(e => e.Key))})"));
+        if (reminder != null) o["systemMessage"] = reminder;
         return o;
+    }
+
+    // Une fois par semaine au plus, tant qu'aucune sauvegarde portable récente n'existe.
+    static string? BackupReminder()
+    {
+        try
+        {
+            var count = Vault.Load().Secrets.Count;
+            var s = Settings.Load();
+            if (!s.BackupOverdue(count)) return null;
+            if (s.LastBackupReminder is { } last && DateTime.Now - last < TimeSpan.FromDays(7)) return null;
+            s.LastBackupReminder = DateTime.Now;
+            s.Save();
+            var since = s.LastBackup is { } b ? $"depuis le {b:dd.MM.yyyy}" : "jamais faite";
+            return $"local-secrets : sauvegarde du coffre ({count} secret(s)) {since}. Sans elle, un changement de PC ou de mot de passe " +
+                   "Windows peut tout rendre illisible. Dans ton terminal : secret backup D:\\coffre.lsbackup";
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     // Convertit le fichier avant l'accès. Renvoie un motif de refus si le dossier est exclu de la
@@ -324,6 +347,10 @@ static class Hooks
     static string Summary(List<ConversionReport> reports) =>
         string.Join(" ; ", reports.Select(r =>
             $"{Path.GetFileName(r.FilePath)} : {r.Encrypted.Count} valeur(s) chiffrée(s) ({string.Join(", ", r.Encrypted.Select(e => e.Key))})"));
+
+    static string CredentialFileMessage(string full) =>
+        $"Lecture bloquée par local-secrets : {Path.GetFileName(full)} est un fichier d'identifiants (mots de passe ou jetons). " +
+        "Les programmes qui s'en servent (psql, git, aws, curl...) le lisent eux-mêmes : lance-les directement, sans ouvrir le fichier.";
 
     static string PrivateKeyMessage(string full) =>
         $"Lecture bloquée par local-secrets : {Path.GetFileName(full)} contient une clé privée. Pour SSH, l'utilisateur l'ajoute " +

@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/secret.exe",
-            "args": ["hook", "session-start"],
+            "command": "cmd.exe",
+            "args": ["/d", "/c", "${CLAUDE_PLUGIN_ROOT}\\bin\\hook.cmd", "session-start"],
             "timeout": 30
           }
         ]
@@ -18,8 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/secret.exe",
-            "args": ["hook", "user-prompt-submit"],
+            "command": "cmd.exe",
+            "args": ["/d", "/c", "${CLAUDE_PLUGIN_ROOT}\\bin\\hook.cmd", "user-prompt-submit"],
             "timeout": 15
           }
         ]
@@ -31,10 +31,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/secret.exe",
-            "args": ["hook", "pre-tool-use"],
-            "timeout": 30,
-            "onFailure": "block"
+            "command": "cmd.exe",
+            "args": ["/d", "/c", "${CLAUDE_PLUGIN_ROOT}\\bin\\hook.cmd", "pre-tool-use"],
+            "timeout": 30
           }
         ]
       }
@@ -45,8 +44,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/secret.exe",
-            "args": ["hook", "post-tool-use"],
+            "command": "cmd.exe",
+            "args": ["/d", "/c", "${CLAUDE_PLUGIN_ROOT}\\bin\\hook.cmd", "post-tool-use"],
             "timeout": 30
           }
         ]

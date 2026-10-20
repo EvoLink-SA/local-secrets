@@ -211,6 +211,43 @@ static class SelfTest
         Check(Guards.CheckForbidden("[System.Security.Cryptography.ProtectedData]::Unprotect($b,$null,'CurrentUser')") != null, "appel DPAPI direct refusé");
         Check(Guards.CheckForbidden("secret run -- docker compose up -d") == null, "secret run autorisé");
 
+        Console.WriteLine("0.1.4 : noms, interpolation, fichiers d'identifiants");
+        (string Key, string Value, bool Secret)[] more =
+        [
+            ("DB_PASSWORT", "Xk9#mP2vL!q", true),
+            ("MAIL_KENNWORT", "Winter2025!", true),
+            ("API_SCHLUESSEL", "a8F3kL9mN2pQ7rS4tU6vW", true),
+            ("CLE_API", "a8F3kL9mN2pQ7rS4tU6vW", true),
+            ("DB_SEGRETO", "Zq8!rT4#pLm", true),
+            ("GEHEIM_PFAD", "/opt/app/conf", false),
+            ("DATABASE_URL", "postgres://${DB_USER}:${DB_PASS}@db:5432/app", false),
+            ("REDIS_URL", "redis://:${REDIS_PASSWORD:-changeme}@redis:6379", false),
+            ("API_TOKEN", "${API_TOKEN}", false),
+            ("DB_PASSWORD", "$DB_PASSWORD", false),
+            ("SMTP_URL", "smtp://mail:${SMTP_PASS}@x.ch?key=Zq8!rT4#pLm", true),
+        ];
+        foreach (var (key, value, secret) in more)
+            Check(Classifier.Classify(key, value, Annotation.None).Secret == secret, $"{key}={value} -> {(secret ? "chiffré" : "en clair")}");
+        var ini = M("[client]\nuser = app\npassword = Zq8!rT4#pLm\nhost = db.local\ntimeout = 30\n");
+        Check(ini.Contains("password = " + OutputMasker.Marker("password")) && ini.Contains("user = app") && ini.Contains("host = db.local") && ini.Contains("timeout = 30"),
+              "fichier INI avec espaces : seul le mot de passe est masqué");
+        Check(M("db.local:5432:app:appuser:Zq8rT4pLmX9\n").Contains(OutputMasker.Marker("MOT_DE_PASSE_PGPASS")), ".pgpass : mot de passe masqué");
+        Check(M("db.local:5432:*:appuser:*\n") == "db.local:5432:*:appuser:*\n", ".pgpass : joker laissé visible");
+        Check(M("machine api.example.com\n  login bob\n  password Zq8rT4pLmX9\n").Contains(OutputMasker.Marker("MOT_DE_PASSE_NETRC")), ".netrc : mot de passe masqué");
+        const string prose = "le password reset link a été envoyé\n";
+        Check(M(prose) == prose, "phrase avec « password » hors .netrc : visible");
+        Check(Paths.IsCredentialFileName(@"C:\Users\x\.pgpass") && Paths.IsCredentialFileName(@"C:\Users\x\.aws\credentials") && Paths.IsCredentialFileName(@"C:\Users\x\_netrc")
+              && !Paths.IsCredentialFileName(@"C:\projet\docs\credentials.md"), "fichiers d'identifiants reconnus (.pgpass, .netrc, .aws\\credentials)");
+
+        Console.WriteLine("0.1.4 : commandes sûres pour Claude");
+        Check(Guards.CheckForbidden("secret undo .env --dry-run") == null, "secret undo --dry-run autorisé");
+        Check(Guards.CheckForbidden("secret unprotect --all --dry-run") == null, "secret unprotect --all --dry-run autorisé");
+        Check(Guards.CheckForbidden("secret undo .env --dry-run; secret undo .env") != null, "dry-run suivi d'une vraie annulation : refusé");
+        Check(Guards.IsSafeSecretCommand("secret status .env") && Guards.IsSafeSecretCommand("secret generate .env DB_PASSWORD"),
+              "status et generate : commandes sûres");
+        Check(!Guards.IsSafeSecretCommand("secret status .env; cat .env") && !Guards.IsSafeSecretCommand("secret status .env && type .env"),
+              "commande sûre enchaînée à une lecture : pas sûre");
+
         Console.WriteLine("Périmètre des conversions");
         Check(EnvFile.HasIgnoreMarkerText("A=1\n# local-secrets: ignore\nB=2") && !EnvFile.HasIgnoreMarkerText(EnvFile.Header), "marqueur ignore reconnu, en-tête normal non");
         var scratch = Path.Combine(Path.GetTempPath(), "ls-selftest-" + Guid.NewGuid().ToString("N")[..8]);

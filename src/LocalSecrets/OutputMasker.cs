@@ -9,7 +9,7 @@ static partial class OutputMasker
 {
     public static string Marker(string name) => $"[masqué:{name}]";
 
-    static readonly Regex[] PairPatterns = [JsonPairRx(), QuotedEnvRx(), YamlRx(), AssignQuotedRx(), AssignRx(), ConnStrRx()];
+    static readonly Regex[] PairPatterns = [JsonPairRx(), QuotedEnvRx(), YamlRx(), AssignQuotedRx(), AssignRx(), IniRx(), ConnStrRx()];
 
     public static string Mask(string text, ICollection<string> neverMask, ISet<string> hits)
     {
@@ -19,6 +19,10 @@ static partial class OutputMasker
         r = Classifier.JwtInTextRx().Replace(r, _ => Hit(hits, "JETON"));
         r = UrlPasswordRx().Replace(r, m => Classifier.IsIgnorableValue(m.Groups["v"].Value) ? m.Value : Swap(m, Hit(hits, "MOT_DE_PASSE_URL")));
         foreach (var rx in PairPatterns) r = rx.Replace(r, m => Pair(m, neverMask, hits, tableRow: false));
+        // .pgpass (hôte:port:base:utilisateur:mot de passe) et .netrc (machine ... password X).
+        r = PgpassRx().Replace(r, m => Classifier.IsIgnorableValue(m.Groups["v"].Value) || m.Groups["v"].Value == "*" ? m.Value : Swap(m, Hit(hits, "MOT_DE_PASSE_PGPASS")));
+        if (NetrcContextRx().IsMatch(r))
+            r = NetrcRx().Replace(r, m => Classifier.IsIgnorableValue(m.Groups["v"].Value) ? m.Value : Swap(m, Hit(hits, "MOT_DE_PASSE_NETRC")));
         // Tableau « NOM   valeur » (Get-ChildItem env:) : la valeur doit en plus avoir l'air d'un secret.
         r = TableRx().Replace(r, m => Pair(m, neverMask, hits, tableRow: true));
         return r;
@@ -73,6 +77,22 @@ static partial class OutputMasker
     // CLÉ=valeur sans espaces (.env, printenv, set, --password=...)
     [GeneratedRegex(@"(?<![\w$.])(?<k>[A-Za-z_][A-Za-z0-9_.\-]{0,60})=(?<v>[^\s""'`,;&|<>()\[\]{}]{1,1000})")]
     private static partial Regex AssignRx();
+
+    // clé = valeur avec espaces, sans guillemets (INI, TOML : ~/.aws/credentials, .pypirc)
+    [GeneratedRegex(@"(?m)^[ \t]*(?<k>[A-Za-z_][A-Za-z0-9_.\-]{0,60})[ \t]+=[ \t]+(?<v>[^\s#;""'\[][^\r\n]*?)[ \t]*\r?$")]
+    private static partial Regex IniRx();
+
+    // .pgpass : hôte:port:base:utilisateur:mot de passe (port numérique ou *)
+    [GeneratedRegex(@"(?m)^[^:\s#]+:(?:\d+|\*):[^:\s]+:[^:\s]+:(?<v>[^\s:]+)\r?$")]
+    private static partial Regex PgpassRx();
+
+    // .netrc : « password X », sur la ligne d'une machine ou seul sur sa ligne
+    [GeneratedRegex(@"(?m)(?:^|[ \t])password[ \t]+(?<v>\S+)")]
+    private static partial Regex NetrcRx();
+
+    // Structure d'un .netrc : une ligne qui commence par « machine HÔTE » ou « default », avec un login.
+    [GeneratedRegex(@"(?ms)^[ \t]*(?:machine[ \t]+\S+|default)\b.*\blogin[ \t]+\S+")]
+    private static partial Regex NetrcContextRx();
 
     // Password = x; dans une chaîne de connexion
     [GeneratedRegex(@"(?i)(?<k>password|pwd|accountkey|sharedaccesskey|client_secret|clientsecret)[ \t]*=[ \t]*(?<v>[^;'""\s\[]{1,500})")]

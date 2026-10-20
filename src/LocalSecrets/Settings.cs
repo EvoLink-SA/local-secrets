@@ -12,17 +12,23 @@ sealed class Settings
     public List<string> OutputMaskingOffIn { get; set; } = new();
     public List<string> NeverMask { get; set; } = new();
     public List<string> ConversionOffIn { get; set; } = new();
+    public DateTime? LastBackup { get; set; }
+    public DateTime? LastBackupReminder { get; set; }
+
+    public static readonly TimeSpan BackupMaxAge = TimeSpan.FromDays(30);
+
+    // Pas de sauvegarde portable récente alors que le coffre contient des secrets.
+    public bool BackupOverdue(int secretCount) =>
+        secretCount > 0 && (LastBackup == null || DateTime.Now - LastBackup.Value > BackupMaxAge);
 
     public static string FilePath => Path.Combine(Vault.Home, "config.json");
-
-    static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     // Un fichier illisible redonne les réglages par défaut, c'est-à-dire tout actif.
     public static Settings Load()
     {
         try
         {
-            if (File.Exists(FilePath)) return JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath), Json) ?? new Settings();
+            if (File.Exists(FilePath)) return JsonSerializer.Deserialize(File.ReadAllText(FilePath), JsonContext.Default.Settings) ?? new Settings();
         }
         catch (Exception e)
         {
@@ -34,7 +40,7 @@ sealed class Settings
     public void Save()
     {
         Directory.CreateDirectory(Vault.Home);
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, Json), new UTF8Encoding(false));
+        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, JsonContext.Default.Settings), new UTF8Encoding(false));
     }
 
     // La variable d'environnement, posée par l'utilisateur au lancement de Claude Code, l'emporte
