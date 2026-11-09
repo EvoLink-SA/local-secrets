@@ -248,6 +248,19 @@ static class SelfTest
         Check(!Guards.IsSafeSecretCommand("secret status .env; cat .env") && !Guards.IsSafeSecretCommand("secret status .env && type .env"),
               "commande sûre enchaînée à une lecture : pas sûre");
 
+        Console.WriteLine("0.1.5 : clés qui commencent par un chiffre");
+        var digit = EnvFile.Parse(Encoding.UTF8.GetBytes("3CX_HOST_SSH_USER=evolink\n3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm\n10.10.40.60:22\n"));
+        Check(digit.Assignments.Select(a => a.Key).SequenceEqual(["3CX_HOST_SSH_USER", "3CX_HOST_SSH_PASSWORD"]) && digit.UnrecognizedLines().SequenceEqual([2]),
+              ".env : 3CX_...=valeur reconnu, « 10.10.40.60:22 » reste du texte");
+        Check(Classifier.Classify("3CX_HOST_SSH_PASSWORD", "Zq8!rT4#pLm", Annotation.None).Secret && !Classifier.Classify("3CX_HOST_SSH_USER", "evolink", Annotation.None).Secret,
+              ".env : 3CX_HOST_SSH_PASSWORD à chiffrer, 3CX_HOST_SSH_USER en clair");
+        Check(EnvFile.ParseReference("secret://lab/3CX_HOST_SSH_PASSWORD") == "lab/3CX_HOST_SSH_PASSWORD" && Vault.IsValidName("lab/3CX_HOST_SSH_PASSWORD"),
+              "référence secret://lab/3CX_... valide");
+        Check(M("3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm\n").Contains(OutputMasker.Marker("3CX_HOST_SSH_PASSWORD")), "sortie : 3CX_...=valeur masqué");
+        Check(M("10.10.40.60:22\n") == "10.10.40.60:22\n", "sortie : adresse:port intacte");
+        Check(Classifier.ScanText("3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm").Count > 0, "message : 3CX_...=valeur repéré");
+        Check(Guards.CheckForbidden("echo [masqué:3CX_HOST_SSH_PASSWORD] > lab.env") != null, "commande contenant un masque 3CX_... refusée");
+
         Console.WriteLine("Périmètre des conversions");
         Check(EnvFile.HasIgnoreMarkerText("A=1\n# local-secrets: ignore\nB=2") && !EnvFile.HasIgnoreMarkerText(EnvFile.Header), "marqueur ignore reconnu, en-tête normal non");
         var scratch = Path.Combine(Path.GetTempPath(), "ls-selftest-" + Guid.NewGuid().ToString("N")[..8]);

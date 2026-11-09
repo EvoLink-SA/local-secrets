@@ -59,7 +59,7 @@ static partial class Guards
     }
 
     // Un masque concret, tel qu'il apparaît dans une sortie : [masqué:CLÉ] ou [secret:espace/CLÉ].
-    [GeneratedRegex(@"\[masqué:[A-Za-z_][A-Za-z0-9_.\-]*\]|\[secret:[a-z0-9][a-z0-9._\-]*/[A-Za-z_][A-Za-z0-9_.\-]*\]")]
+    [GeneratedRegex(@"\[masqué:[0-9]*[A-Za-z_][A-Za-z0-9_.\-]*\]|\[secret:[a-z0-9][a-z0-9._\-]*/[0-9]*[A-Za-z_][A-Za-z0-9_.\-]*\]")]
     public static partial Regex MaskMarkerRx();
 
     public const string MaskDenied =
@@ -74,7 +74,7 @@ static partial class Guards
     [GeneratedRegex(@"^\s*(?:cd|Set-Location|sl|pushd)\s+(?:""(?<d>[^""]+)""|'(?<d>[^']+)'|(?<d>[^\s;&|]+))\s*(?:&&|;|\|\|)", RegexOptions.IgnoreCase)]
     private static partial Regex LeadingCdRx();
 
-    [GeneratedRegex(@"\$(?:env:)?\{?(?<n>[A-Za-z_][A-Za-z0-9_]*)")]
+    [GeneratedRegex(@"\$(?:env:)?\{?(?<n>[0-9]*[A-Za-z_][A-Za-z0-9_]*)")]
     private static partial Regex VariableRx();
 
     [GeneratedRegex(@"--project-directory[ =](?:""(?<d>[^""]+)""|(?<d>\S+))|(?:-f|--file)[ =](?:""(?<f>[^""]+)""|(?<f>\S+))")]

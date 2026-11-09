@@ -27,7 +27,7 @@ static partial class Runner
 {
     public const string AskpassEnv = "LOCAL_SECRETS_ASKPASS_VALUE";
 
-    [GeneratedRegex(@"secret://(?:(?<ns>[a-z0-9][a-z0-9._\-]*)/)?(?<key>[A-Za-z_][A-Za-z0-9_.\-]*)")]
+    [GeneratedRegex(@"secret://(?:(?<ns>[a-z0-9][a-z0-9._\-]*)/)?(?<key>[0-9]*[A-Za-z_][A-Za-z0-9_.\-]*)")]
     private static partial Regex ReferenceRx();
 
     [GeneratedRegex(@"(?m)^\s*env_file\s*:")]
@@ -142,7 +142,8 @@ static partial class Runner
             if (!File.Exists(f)) throw new UserError($"fichier introuvable : {f}");
             var report = Converter.AutoConvert(f);
             if (report is { Changed: true })
-                Ui.Note($"{Path.GetFileName(f)} : {report.Encrypted.Count} valeur(s) chiffrée(s) avant lancement ({string.Join(", ", report.Encrypted.Select(e => e.Key))})");
+                Ui.Note($"{Path.GetFileName(f)} : {report.Encrypted.Count} valeur(s) chiffrée(s) avant lancement ({string.Join(", ", report.Encrypted.Select(e => e.Key))})" +
+                        (report.UnrecognizedNote is { } note ? ", " + note : ""));
         }
 
         var vault = Vault.Load();

@@ -39,8 +39,9 @@ sealed partial class EnvFile
     byte[] preamble = [];
 
     // CLÉ=valeur, et aussi clé:valeur, que certains outils maison acceptent dans un .env : une ligne
-    // de ce format resterait sinon invisible, donc jamais chiffrée.
-    [GeneratedRegex(@"^(?<pre>[ \t]*(?:export[ \t]+)?(?<key>[A-Za-z_][A-Za-z0-9_.\-]*)[ \t]*[=:])(?<rest>.*)$")]
+    // de ce format resterait sinon invisible, donc jamais chiffrée. La clé peut commencer par des
+    // chiffres (3CX_PASSWORD) mais contient au moins une lettre : « 10.0.0.1:22 » reste du texte.
+    [GeneratedRegex(@"^(?<pre>[ \t]*(?:export[ \t]+)?(?<key>[0-9]*[A-Za-z_][A-Za-z0-9_.\-]*)[ \t]*[=:])(?<rest>.*)$")]
     private static partial Regex AssignRx();
 
     public const string IgnoreMarker = "# local-secrets: ignore";
@@ -91,7 +92,7 @@ sealed partial class EnvFile
         return result;
     }
 
-    [GeneratedRegex(@"^secret://(?<name>[a-z0-9][a-z0-9._\-]*/[A-Za-z_][A-Za-z0-9_.\-]*)$")]
+    [GeneratedRegex(@"^secret://(?<name>[a-z0-9][a-z0-9._\-]*/[0-9]*[A-Za-z_][A-Za-z0-9_.\-]*)$")]
     private static partial Regex ReferenceRx();
 
     [GeneratedRegex(@"@(?<a>secret|public)\b", RegexOptions.IgnoreCase)]

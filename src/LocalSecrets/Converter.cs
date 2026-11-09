@@ -6,7 +6,14 @@ sealed record ConversionReport(
     List<(string Key, string Reason)> Encrypted,
     List<(string Key, string Reason)> Clear,
     List<string> References,
-    bool Changed);
+    bool Changed,
+    List<int> Unrecognized)
+{
+    // Lignes que le tri n'a pas pu lire : un secret qui s'y trouve reste en clair sans autre signe.
+    public string? UnrecognizedNote => Unrecognized.Count == 0 ? null :
+        $"{Unrecognized.Count} ligne(s) au format non reconnu laissée(s) telle(s) quelle(s) " +
+        $"(ligne {string.Join(", ", Unrecognized.Take(10))}{(Unrecognized.Count > 10 ? "..." : "")}), détail avec « secret status »";
+}
 
 static class Converter
 {
@@ -56,9 +63,10 @@ static class Converter
         }
 
         var encrypted = toEncrypt.Select(t => (t.A.Key, t.Reason)).ToList();
+        var unrecognized = env.UnrecognizedLines().Select(i => i + 1).ToList();
         var preferred = PreferredNamespace(env);
         if (toEncrypt.Count == 0 || dryRun)
-            return new(full, preferred ?? Vault.FindNamespace(Vault.Load(), full), encrypted, clear, refs, false);
+            return new(full, preferred ?? Vault.FindNamespace(Vault.Load(), full), encrypted, clear, refs, false, unrecognized);
 
         var (ns, values) = Vault.Update(d =>
         {
@@ -94,6 +102,7 @@ static class Converter
         }
 
         Log.Write($"converti {full} : {values.Count} valeur(s) chiffrée(s) dans l'espace {ns}");
-        return new(full, ns, encrypted, clear, refs, true);
+        // Numéros relus dans le fichier converti : l'en-tête ajouté décale les lignes.
+        return new(full, ns, encrypted, clear, refs, true, check.UnrecognizedLines().Select(i => i + 1).ToList());
     }
 }

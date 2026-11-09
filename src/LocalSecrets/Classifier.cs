@@ -324,7 +324,7 @@ static partial class Classifier
     [GeneratedRegex(@"(?i)[?&](token|access_token|api_key|apikey|key|sig|signature|password|pwd|secret|auth|code)=[^&\s]{8,}")] private static partial Regex UrlSecretParamRx();
     [GeneratedRegex(@"(?i)(?<![\w])(?<label>mot\s+de\s+passe|mdp|password|passwd|pwd|passphrase|token|jeton|api[\s_\-]?key|cl[ée]\s+(?:d'|de\s+l')?api|secret|pass)(?![\w])(?!://)\s*(?:est|is|=|:|=>|->|vaut)?\s*[:=]?\s*[«""'`]?\s*(?<v>[^\s""'»`]{6,})")] private static partial Regex LabeledRx();
 
-    [GeneratedRegex(@"(?<![\w$.])[""']?(?<k>[A-Za-z_][A-Za-z0-9_.\-]{1,60})[""']?[ \t]*[:=][ \t]*(?<v>""[^""\r\n]{1,200}""|'[^'\r\n]{1,200}'|[^\s""'`]{1,200})")] private static partial Regex AssignmentInTextRx();
+    [GeneratedRegex(@"(?<![\w$.])[""']?(?<k>[0-9]*[A-Za-z_][A-Za-z0-9_.\-]{1,60})[""']?[ \t]*[:=][ \t]*(?<v>""[^""\r\n]{1,200}""|'[^'\r\n]{1,200}'|[^\s""'`]{1,200})")] private static partial Regex AssignmentInTextRx();
     [GeneratedRegex(@"^(x{3,}.*|\*+|\.{3,}|changeme|change_me|change-me|example|exemple|placeholder|todo|tbd|secret|password|motdepasse|mot_de_passe|your[_\-].*|my[_\-].*|none|null|undefined|redacted|\[secret:.*\]|\[masqué:.*\]|\[secret:.*|\[masqué:.*)$", RegexOptions.IgnoreCase)] private static partial Regex PlaceholderRx();
     [GeneratedRegex(@"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+(\(.*)?$|\(|^[A-Za-z_][\w.]*\[")] private static partial Regex CodeReferenceRx();
     [GeneratedRegex(@"^(true|false|yes|no|on|off|oui|non|null|none|nil|enabled|disabled)$", RegexOptions.IgnoreCase)] private static partial Regex BoolRx();

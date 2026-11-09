@@ -50,7 +50,7 @@ static partial class Vault
     public static string FilePath => Path.Combine(Home, "vault.json");
     public static string BackupDir => Path.Combine(Home, "backups");
 
-    [GeneratedRegex(@"^[a-z0-9][a-z0-9._\-]*/[A-Za-z_][A-Za-z0-9_.\-]*$")]
+    [GeneratedRegex(@"^[a-z0-9][a-z0-9._\-]*/[0-9]*[A-Za-z_][A-Za-z0-9_.\-]*$")]
     private static partial Regex NameRx();
 
     public static bool IsValidName(string name) => NameRx().IsMatch(name);

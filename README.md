@@ -121,9 +121,11 @@ PUBLIC_DSN=https://x.y/z     # @public
 
 `secret status` montre la décision et sa raison pour chaque clé, sans afficher les valeurs. Il
 signale aussi les lignes qu'il ne reconnaît pas : elles sont ignorées par le tri, donc jamais
-chiffrées. Les formats reconnus sont `CLÉ=valeur` (avec ou sans `export`, guillemets, valeurs sur
-plusieurs lignes) et `clé:valeur`, que certains scripts maison utilisent. Une ligne `clé:valeur`
-garde son format après conversion (`ssh_password:secret://...`).
+chiffrées. La conversion les signale aussi, avec leurs numéros. Les formats reconnus sont
+`CLÉ=valeur` (avec ou sans `export`, guillemets, valeurs sur plusieurs lignes) et `clé:valeur`,
+que certains scripts maison utilisent. Une ligne `clé:valeur` garde son format après conversion
+(`ssh_password:secret://...`). Une clé peut commencer par des chiffres (`3CX_PASSWORD`) à
+condition de contenir une lettre : `10.0.0.1:22` reste une ligne de texte.
 
 ## Masquage générique des sorties
 

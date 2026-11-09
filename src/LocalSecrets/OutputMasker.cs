@@ -59,27 +59,27 @@ static partial class OutputMasker
     private static partial Regex UrlPasswordRx();
 
     // "clé": "valeur"
-    [GeneratedRegex(@"""(?<k>[A-Za-z_][A-Za-z0-9_.\-]{0,60})""\s*:\s*""(?<v>(?:[^""\\\r\n]|\\.){1,4000})""")]
+    [GeneratedRegex(@"""(?<k>[0-9]*[A-Za-z_][A-Za-z0-9_.\-]{0,60})""\s*:\s*""(?<v>(?:[^""\\\r\n]|\\.){1,4000})""")]
     private static partial Regex JsonPairRx();
 
     // "CLÉ=valeur" (liste Env de docker inspect)
-    [GeneratedRegex(@"""(?<k>[A-Za-z_][A-Za-z0-9_]{0,60})=(?<v>(?:[^""\\\r\n]|\\.){1,4000})""")]
+    [GeneratedRegex(@"""(?<k>[0-9]*[A-Za-z_][A-Za-z0-9_]{0,60})=(?<v>(?:[^""\\\r\n]|\\.){1,4000})""")]
     private static partial Regex QuotedEnvRx();
 
     // clé: valeur ou clé:valeur, en début de ligne (YAML, docker compose config, Format-List, .env maison)
-    [GeneratedRegex(@"(?m)^(?<pre>[ \t]*(?:\d+\t)?(?:-[ \t]+)?)(?<k>[A-Za-z_][A-Za-z0-9_.\-]{0,60})[ \t]*:[ \t]*(?:""(?<v>[^""\r\n]*)""|'(?<v>[^'\r\n]*)'|(?<v>[^\s""'][^\r\n]*?))(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$")]
+    [GeneratedRegex(@"(?m)^(?<pre>[ \t]*(?:\d+\t)?(?:-[ \t]+)?)(?<k>[0-9]*[A-Za-z_][A-Za-z0-9_.\-]{0,60})[ \t]*:[ \t]*(?:""(?<v>[^""\r\n]*)""|'(?<v>[^'\r\n]*)'|(?<v>[^\s""'][^\r\n]*?))(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$")]
     private static partial Regex YamlRx();
 
     // clé = "valeur", clé: 'valeur', 'clé': "valeur" (code, INI, TOML, dictionnaires)
-    [GeneratedRegex(@"(?<![\w$.])(?<k>[A-Za-z_][A-Za-z0-9_.\-]{0,60})[""']?[ \t]*[:=][ \t]*(?<q>[""'])(?<v>[^""'\r\n]{1,500})\k<q>")]
+    [GeneratedRegex(@"(?<![\w$.])(?<k>[0-9]*[A-Za-z_][A-Za-z0-9_.\-]{0,60})[""']?[ \t]*[:=][ \t]*(?<q>[""'])(?<v>[^""'\r\n]{1,500})\k<q>")]
     private static partial Regex AssignQuotedRx();
 
     // CLÉ=valeur sans espaces (.env, printenv, set, --password=...)
-    [GeneratedRegex(@"(?<![\w$.])(?<k>[A-Za-z_][A-Za-z0-9_.\-]{0,60})=(?<v>[^\s""'`,;&|<>()\[\]{}]{1,1000})")]
+    [GeneratedRegex(@"(?<![\w$.])(?<k>[0-9]*[A-Za-z_][A-Za-z0-9_.\-]{0,60})=(?<v>[^\s""'`,;&|<>()\[\]{}]{1,1000})")]
     private static partial Regex AssignRx();
 
     // clé = valeur avec espaces, sans guillemets (INI, TOML : ~/.aws/credentials, .pypirc)
-    [GeneratedRegex(@"(?m)^[ \t]*(?<k>[A-Za-z_][A-Za-z0-9_.\-]{0,60})[ \t]+=[ \t]+(?<v>[^\s#;""'\[][^\r\n]*?)[ \t]*\r?$")]
+    [GeneratedRegex(@"(?m)^[ \t]*(?<k>[0-9]*[A-Za-z_][A-Za-z0-9_.\-]{0,60})[ \t]+=[ \t]+(?<v>[^\s#;""'\[][^\r\n]*?)[ \t]*\r?$")]
     private static partial Regex IniRx();
 
     // .pgpass : hôte:port:base:utilisateur:mot de passe (port numérique ou *)

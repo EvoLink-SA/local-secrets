@@ -88,6 +88,13 @@ try {
     $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; tool_input = @{ file_path = $subEnv } }
     Check ($res.Trim().Length -eq 0) 'Read d''un .env déjà protégé : rien à signaler'
 
+    $lab = Join-Path $proj 'sub\lab.env'
+    [IO.File]::WriteAllText($lab, "3CX_HOST_SSH_USER=evolink`n3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm`nadmin / Zq8!rT4#pLm`n")
+    $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; tool_input = @{ file_path = $lab } }
+    $text = [IO.File]::ReadAllText($lab)
+    Check ($text -match '3CX_HOST_SSH_PASSWORD=secret://[^/\s]+/3CX_HOST_SSH_PASSWORD' -and $text.Contains('3CX_HOST_SSH_USER=evolink')) 'Read d''un .env : clé qui commence par un chiffre convertie'
+    Check ($res.Contains('format non reconnu') -and $res.Contains('ligne 4')) 'Read d''un .env : ligne non reconnue signalée, numéro après en-tête'
+
     $res = Hook 'pre-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = 'secret reveal monprojet/SSH_PASS' } }
     Check ($res.Contains('"permissionDecision":"deny"')) 'Bash secret reveal : refusé'
 

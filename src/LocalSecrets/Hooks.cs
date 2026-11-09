@@ -346,7 +346,8 @@ static class Hooks
 
     static string Summary(List<ConversionReport> reports) =>
         string.Join(" ; ", reports.Select(r =>
-            $"{Path.GetFileName(r.FilePath)} : {r.Encrypted.Count} valeur(s) chiffrée(s) ({string.Join(", ", r.Encrypted.Select(e => e.Key))})"));
+            $"{Path.GetFileName(r.FilePath)} : {r.Encrypted.Count} valeur(s) chiffrée(s) ({string.Join(", ", r.Encrypted.Select(e => e.Key))})" +
+            (r.UnrecognizedNote is { } note ? ", " + note : "")));
 
     static string CredentialFileMessage(string full) =>
         $"Lecture bloquée par local-secrets : {Path.GetFileName(full)} est un fichier d'identifiants (mots de passe ou jetons). " +

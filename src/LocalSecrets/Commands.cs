@@ -19,7 +19,7 @@ static partial class Commands
 
     public static bool IsKnown(string arg) => Known.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
-    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_.\-]*$")]
+    [GeneratedRegex(@"^[0-9]*[A-Za-z_][A-Za-z0-9_.\-]*$")]
     private static partial Regex KeyRx();
 
     public static int Dispatch(string[] args)
@@ -364,6 +364,7 @@ static partial class Commands
             Console.WriteLine(r.Changed
                 ? $"{f} : {r.Encrypted.Count} valeur(s) chiffrée(s) dans l'espace {r.Namespace} ({string.Join(", ", r.Encrypted.Select(e => e.Key))}), {r.Clear.Count} laissée(s) en clair"
                 : $"{f} : rien à chiffrer ({r.References.Count} déjà protégée(s), {r.Clear.Count} en clair)");
+            if (r.UnrecognizedNote is { } note) Console.WriteLine("  attention : " + note);
         }
         return 0;
     }
