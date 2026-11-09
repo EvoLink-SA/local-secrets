@@ -36,7 +36,7 @@ cd local-secrets
 
 Le script, sans droits administrateur :
 1. lance les tests internes de `secret.exe` (`-Build` pour le recompiler d'abord, voir Développement) ;
-2. ajoute `plugins\local-secrets\bin` au PATH utilisateur ;
+2. ajoute `plugins\local-secrets\tools` au PATH utilisateur ;
 3. ajoute une ligne à ton profil PowerShell 7 pour le chargement automatique (`-NoShellIntegration` pour s'en passer) ;
 4. déclare la marketplace locale et installe le plugin `local-secrets` dans Claude Code ;
 5. lance `secret doctor`.
@@ -420,7 +420,7 @@ le rend illisible. La même sauvegarde se restaure sur l'un ou l'autre système.
 | Journal (noms et actions, jamais de valeur) | `%USERPROFILE%\.local-secrets\local-secrets.log` |
 | Anciens coffres, fusionnés et laissés intacts | `%LOCALAPPDATA%\local-secrets\`, et la copie privée de Claude Desktop sous `%LOCALAPPDATA%\Packages\Claude_...\LocalCache\Local\` |
 | Chargement automatique du terminal | `shell\local-secrets.profile.ps1`, appelé depuis ton profil PowerShell 7 |
-| Plugin | `plugins\local-secrets\` (hooks, skill, `bin\secret.exe`) |
+| Plugin | `plugins\local-secrets\` (hooks, skill, `tools\secret.exe`) |
 | Code source | `src\LocalSecrets\` (C#, .NET 10) |
 
 ## Désinstaller
@@ -454,7 +454,7 @@ se lancent dans WSL, pas dans Docker, dont le profil seccomp par défaut bloque 
 
 La compilation native demande le SDK .NET 10 et les outils C++ de Visual Studio (charge
 « Développement Desktop en C++ »). Sans eux, `.\build.ps1 -FrameworkDependent` produit un exe qui
-exige le runtime .NET 10 sur chaque poste. Le `secret.exe` versionné dans `plugins\local-secrets\bin`
+exige le runtime .NET 10 sur chaque poste. Le `secret.exe` versionné dans `plugins\local-secrets\tools`
 est celui que reçoivent les collègues : recompile et commite-le à chaque version.
 
 `LOCAL_SECRETS_HOME` permet de pointer vers un autre coffre, pour les tests.

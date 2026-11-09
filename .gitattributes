@@ -4,4 +4,4 @@
 *.cmd text eol=crlf
 *.bat text eol=crlf
 *.sh text eol=lf
-plugins/local-secrets-linux/bin/secret binary
+plugins/local-secrets-linux/tools/secret binary

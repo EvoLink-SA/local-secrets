@@ -7,7 +7,7 @@
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
-exe="$root/plugins/local-secrets-linux/bin/secret"
+exe="$root/plugins/local-secrets-linux/tools/secret"
 
 echo '1. Fichiers .env'
 if [ "${1:-}" = --keep-env-files ]; then

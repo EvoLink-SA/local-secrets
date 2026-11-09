@@ -92,14 +92,14 @@ static class SessionKeeper
     static bool IsWsl =>
         File.Exists("/proc/sys/fs/binfmt_misc/WSLInterop") || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WSL_DISTRO_NAME"));
 
-    // secret.exe de la variante Windows, livré dans le même dépôt : plugins/local-secrets/bin.
+    // secret.exe de la variante Windows, livré dans le même dépôt : plugins/local-secrets/tools.
     static string? WindowsExe()
     {
         var custom = Environment.GetEnvironmentVariable("LOCAL_SECRETS_WINDOWS_EXE");
         if (!string.IsNullOrWhiteSpace(custom)) return File.Exists(custom) ? custom : null;
         var here = Path.GetDirectoryName(Environment.ProcessPath);
         if (here == null) return null;
-        var exe = Path.GetFullPath(Path.Combine(here, "..", "..", "local-secrets", "bin", "secret.exe"));
+        var exe = Path.GetFullPath(Path.Combine(here, "..", "..", "local-secrets", "tools", "secret.exe"));
         return File.Exists(exe) ? exe : null;
     }
 

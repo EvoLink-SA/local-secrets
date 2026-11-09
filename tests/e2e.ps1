@@ -1,7 +1,7 @@
 ﻿#requires -Version 7
 # Tests de bout en bout de secret.exe : CLI et hooks, dans un coffre et un projet temporaires.
 # Les valeurs ci-dessous sont factices.
-param([string]$Exe = (Join-Path $PSScriptRoot '..\plugins\local-secrets\bin\secret.exe'))
+param([string]$Exe = (Join-Path $PSScriptRoot '..\plugins\local-secrets\tools\secret.exe'))
 
 $ErrorActionPreference = 'Stop'
 $Exe = (Resolve-Path $Exe).Path

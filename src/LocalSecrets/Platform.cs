@@ -59,7 +59,7 @@ interface IPlatform
     // Contrôles propres au système, pour « secret doctor » : (problème ?, message).
     IEnumerable<(bool Problem, string Message)> DoctorChecks();
 
-    // Nom de l'exécutable livré dans bin\, du script d'installation et du plugin Claude Code.
+    // Nom de l'exécutable livré dans tools\, du script d'installation et du plugin Claude Code.
     string ExecutableName { get; }
     string InstallScript { get; }
     string PluginName { get; }

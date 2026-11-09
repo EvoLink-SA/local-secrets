@@ -2,7 +2,7 @@
 # Test du trousseau de session (Secret Service, GNOME Keyring) pour « secret unlock --remember »,
 # lancé dans un conteneur par tests/secret-service.ps1. Coffre jetable, valeurs factices.
 set -u
-exe=/repo/plugins/local-secrets-linux/bin/secret
+exe=/repo/plugins/local-secrets-linux/tools/secret
 export LOCAL_SECRETS_HOME=/tmp/home
 failures=0
 check() {

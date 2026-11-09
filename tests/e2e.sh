@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Tests de bout en bout de secret sous Linux : clé du coffre, CLI, verrouillage et hooks, dans un
 # coffre et un projet temporaires. Les valeurs ci-dessous sont factices.
-# Usage : tests/e2e.sh [CHEMIN_DU_BINAIRE]   (défaut : plugins/local-secrets-linux/bin/secret)
+# Usage : tests/e2e.sh [CHEMIN_DU_BINAIRE]   (défaut : plugins/local-secrets-linux/tools/secret)
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
-exe=${1:-$here/../plugins/local-secrets-linux/bin/secret}
+exe=${1:-$here/../plugins/local-secrets-linux/tools/secret}
 root=$(mktemp -d /tmp/local-secrets-e2e-XXXXXXXX)
 work="$root/bin"
 mkdir -p "$work"
@@ -105,7 +105,7 @@ for i in 1 2 3 4 5 6; do printf 'Parallele-%s-xY9!' "$i" | "$exe" set "par/K$i" 
 wait
 check '[ "$("$exe" list --ns par | grep -c "^par/K")" -eq 6 ]' 'six écritures parallèles : aucune perdue'
 
-winexe="$here/../plugins/local-secrets/bin/secret.exe"
+winexe="$here/../plugins/local-secrets/tools/secret.exe"
 if [ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && [ -f "$winexe" ]; then
     echo 'Pont DPAPI (WSL)'
     export LOCAL_SECRETS_WINDOWS_EXE="$winexe"
@@ -175,7 +175,7 @@ out=$(hook pre-tool-use "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\
 check 'grep -q "^LOCKED_PASSWORD=secret://" sub/locked.env && ! printf "%s" "$out" | grep -q deny' 'Read d un .env en clair, coffre verrouillé : converti, pas de refus'
 
 echo 'Lanceur des hooks'
-cp "$here/../plugins/local-secrets-linux/bin/hook.sh" "$work/hook.sh"
+cp "$here/../plugins/local-secrets-linux/tools/hook.sh" "$work/hook.sh"
 out=$(printf '{"tool_name":"Bash","tool_input":{"command":"cat /proc/1/environ"},"cwd":"/"}' | sh "$work/hook.sh" pre-tool-use)
 check 'printf "%s" "$out" | grep -q "\"permissionDecision\":\"deny\""' 'hook.sh : transmet au binaire'
 mkdir -p "$root/casse"

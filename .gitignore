@@ -1,4 +1,4 @@
-# Sorties de compilation intermédiaires (le secret.exe publié dans plugins/local-secrets/bin reste versionné)
+# Sorties de compilation intermédiaires (le secret.exe publié dans plugins/local-secrets/tools reste versionné)
 src/LocalSecrets/bin/
 src/LocalSecrets/obj/
 

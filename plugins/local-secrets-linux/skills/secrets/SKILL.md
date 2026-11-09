@@ -90,12 +90,13 @@ secret run -- pwsh -NoProfile -Command 'Invoke-RestMethod https://api.example.co
 
 ## Selon l'outil
 
-- **Bash (Git Bash)** : `secret` est dans le PATH grâce au plugin. Git Bash convertit en chemin
+- **Bash (Git Bash)** : `secret` est dans le PATH une fois `install.ps1` lancé ; sinon, appelle-le par
+  le chemin donné dans le contexte de démarrage. Git Bash convertit en chemin
   tout argument qui commence par `/` : `cmd /c` devient `cmd C:/`. Écris `cmd //c`, ou passe par
   l'outil PowerShell pour les commandes Windows à options `/x`.
 - **PowerShell** : `secret` est dans le PATH une fois l'installation faite et l'application
   relancée. Sinon, appelle-le par le chemin complet donné dans le contexte de démarrage :
-  `& 'C:\...\bin\secret.exe' run -- <commande>`.
+  `& 'C:\...\tools\secret.exe' run -- <commande>`.
 - **Piège WSL** : depuis l'outil PowerShell, `bash` est le Bash de WSL (`C:\Windows\System32\bash.exe`),
   pas Git Bash. `secret run -- bash ...` ou `secret run -- wsl ...` transmet bien les variables à WSL.
   Mais un `bash` WSL lancé autrement ne les reçoit pas : la valeur y arrive **vide, sans erreur**.

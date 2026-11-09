@@ -108,9 +108,9 @@ static class Doctor
         var exe = Platform.Current.ExecutableName;
         return Directory.EnumerateDirectories(cache)
             .Select(d => (Dir: d, Ok: Version.TryParse(Path.GetFileName(d), out var v), Version: v))
-            .Where(x => x.Ok && File.Exists(Path.Combine(x.Dir, "bin", exe)))
+            .Where(x => x.Ok && File.Exists(Path.Combine(x.Dir, "tools", exe)))
             .OrderByDescending(x => x.Version)
-            .Select(x => Path.Combine(x.Dir, "bin", exe))
+            .Select(x => Path.Combine(x.Dir, "tools", exe))
             .FirstOrDefault();
     }
 }

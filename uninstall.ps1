@@ -7,7 +7,7 @@ param([switch]$KeepEnvFiles)
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$bin = Join-Path $root 'plugins\local-secrets\bin'
+$bin = Join-Path $root 'plugins\local-secrets\tools'
 $exe = Join-Path $bin 'secret.exe'
 
 '1. Fichiers .env'
@@ -52,8 +52,9 @@ else { '   pas de profil.' }
 
 '4. PATH utilisateur'
 $entries = @(([Environment]::GetEnvironmentVariable('Path', 'User') ?? '') -split ';' | Where-Object { $_ })
-if ($entries -contains $bin) {
-    [Environment]::SetEnvironmentVariable('Path', (($entries | Where-Object { $_ -ne $bin }) -join ';'), 'User')
+$oldBin = Join-Path $root 'plugins\local-secrets\bin'   # emplacement jusqu'à la 0.2.1
+if ($entries -contains $bin -or $entries -contains $oldBin) {
+    [Environment]::SetEnvironmentVariable('Path', (($entries | Where-Object { $_ -ne $bin -and $_ -ne $oldBin }) -join ';'), 'User')
     "   $bin retiré."
 }
 else { '   déjà absent.' }

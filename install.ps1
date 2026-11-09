@@ -11,7 +11,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$bin = Join-Path $root 'plugins\local-secrets\bin'
+$bin = Join-Path $root 'plugins\local-secrets\tools'
 $exe = Join-Path $bin 'secret.exe'
 $profileScript = Join-Path $root 'shell\local-secrets.profile.ps1'
 
@@ -24,6 +24,13 @@ else {
 
 '1. PATH utilisateur'
 $entries = @(([Environment]::GetEnvironmentVariable('Path', 'User') ?? '') -split ';' | Where-Object { $_ })
+# Jusqu'à la 0.2.1, les exécutables étaient dans bin\, dossier que claude.ai refuse dans un plugin.
+$oldBin = Join-Path $root 'plugins\local-secrets\bin'
+if ($entries -contains $oldBin) {
+    $entries = @($entries | Where-Object { $_ -ne $oldBin })
+    [Environment]::SetEnvironmentVariable('Path', ($entries -join ';'), 'User')
+    "   ancien dossier retiré : $oldBin"
+}
 if ($entries -notcontains $bin) {
     [Environment]::SetEnvironmentVariable('Path', (($entries + $bin) -join ';'), 'User')
     "   $bin ajouté. Les terminaux et applications lancés à partir de maintenant le verront."

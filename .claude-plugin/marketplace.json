@@ -9,13 +9,13 @@
       "name": "local-secrets",
       "source": "./plugins/local-secrets",
       "description": "Windows : secrets locaux chiffrés par DPAPI. Les .env sont protégés au premier accès et Claude utilise les valeurs via secret run sans jamais les voir.",
-      "version": "0.2.1"
+      "version": "0.2.2"
     },
     {
       "name": "local-secrets-linux",
       "source": "./plugins/local-secrets-linux",
       "description": "Linux et WSL : secrets locaux chiffrés par une clé du compte, déverrouillée par phrase de passe. Les .env sont protégés au premier accès et Claude utilise les valeurs via secret run sans jamais les voir.",
-      "version": "0.2.1"
+      "version": "0.2.2"
     }
   ]
 }

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
-bin="$root/plugins/local-secrets-linux/bin"
+bin="$root/plugins/local-secrets-linux/tools"
 exe="$bin/secret"
 profile_script="$root/shell/local-secrets.sh"
 
