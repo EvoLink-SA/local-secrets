@@ -80,8 +80,8 @@ static class Legacy
             CopyFiles(dir);
             state[dir] = stamp!;
         }
-        Directory.CreateDirectory(Vault.Home);
-        File.WriteAllText(StatePath, JsonSerializer.Serialize(state, JsonContext.Default.DictionaryStringString), new UTF8Encoding(false));
+        Paths.CreatePrivateDirectory(Vault.Home);
+        Paths.WritePrivate(StatePath, JsonSerializer.Serialize(state, JsonContext.Default.DictionaryStringString));
         foreach (var line in report) Log.Write("fusion : " + line);
         return report;
     }
@@ -142,14 +142,20 @@ static class Legacy
         var backups = Path.Combine(dir, "backups");
         if (Directory.Exists(backups))
         {
-            Directory.CreateDirectory(Vault.BackupDir);
+            Paths.CreatePrivateDirectory(Vault.BackupDir);
             foreach (var file in Directory.EnumerateFiles(backups, "*.json"))
             {
                 var target = Path.Combine(Vault.BackupDir, Path.GetFileName(file));
-                if (!File.Exists(target)) File.Copy(file, target);
+                if (File.Exists(target)) continue;
+                File.Copy(file, target);
+                Paths.RestrictToOwner(target);
             }
         }
         var config = Path.Combine(dir, "config.json");
-        if (File.Exists(config) && !File.Exists(Settings.FilePath)) File.Copy(config, Settings.FilePath);
+        if (File.Exists(config) && !File.Exists(Settings.FilePath))
+        {
+            File.Copy(config, Settings.FilePath);
+            Paths.RestrictToOwner(Settings.FilePath);
+        }
     }
 }

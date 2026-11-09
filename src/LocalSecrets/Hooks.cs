@@ -167,19 +167,30 @@ static class Hooks
         var vault = Vault.Load();
         var settings = Settings.Load();
         var genericOn = settings.OutputMaskingFor(cwd, out _);
+        var unreadable = new List<string>();
         if ((vault.Secrets.Count > 0 || genericOn) && input["tool_response"] is { } response)
         {
-            var patterns = vault.Secrets.Count > 0 ? Redactor.Variants(Vault.DecryptAll(vault)) : [];
+            var patterns = vault.Secrets.Count > 0 ? Redactor.Variants(Vault.DecryptAll(vault, unreadable)) : [];
             replaced = RedactNode(response.DeepClone(), s =>
             {
                 var r = Redactor.Redact(s, patterns, hits);
                 return genericOn ? OutputMasker.Mask(r, settings.NeverMask, generic) : r;
             });
         }
-        if (hits.Count == 0 && generic.Count == 0 && converted.Count == 0) return null;
+        // Secrets illisibles (coffre verrouillé, créé ailleurs) : leurs valeurs ne seraient pas masquées.
+        // Signalé une fois par session, pas à chaque outil.
+        var unreadableNotice = unreadable.Count > 0 && NoticeOnce(Str(input, "session_id"), "unreadable");
+        if (hits.Count == 0 && generic.Count == 0 && converted.Count == 0 && !unreadableNotice) return null;
 
         var context = new List<string>();
         var user = new List<string>();
+        if (unreadableNotice)
+        {
+            var notice = $"{unreadable.Count} secret(s) du coffre illisible(s) ici : leurs valeurs ne sont pas masquées dans les " +
+                         $"sorties de cette session. {Platform.Current.UnreadableHint}";
+            context.Add("local-secrets : " + notice);
+            user.Add(notice);
+        }
         if (converted.Count > 0)
         {
             context.Add("local-secrets a chiffré les valeurs sensibles que tu viens d'écrire : " + Summary(converted) +
@@ -276,13 +287,12 @@ static class Hooks
 
         var context =
             "local-secrets est actif sur ce poste. Les valeurs sensibles des fichiers .env sont chiffrées dans un coffre local " +
-            "(DPAPI Windows) et remplacées par des références secret://espace/CLÉ.\n" +
+            $"({Platform.Current.ProtectionDescription}) et remplacées par des références secret://espace/CLÉ.\n" +
             "Fichiers protégés dans ce projet, avec leurs clés chiffrées :\n" + string.Join("\n", protectedFiles) + "\n" +
             "Pour lancer une commande qui a besoin de ces valeurs, préfixe-la par « secret run -- » : les variables du .env du " +
             "dossier courant sont injectées et leurs valeurs masquées dans la sortie. Dans un argument, écris secret://CLÉ, " +
             "secret run le remplace. Attention, $VAR entre guillemets doubles est développée trop tôt par ton shell. " +
-            $"Si « secret » est introuvable (outil PowerShell notamment), appelle-le par son chemin : & '{Environment.ProcessPath}' run -- <commande>. " +
-            "Dans l'outil Bash (Git Bash), un argument qui commence par / est converti en chemin : écris //c au lieu de /c. " +
+            Platform.Current.ShellHints(Environment.ProcessPath ?? "secret") +
             "Si l'utilisateur veut voir des valeurs, lance « secret show [FICHIER|NOM] » : elles s'affichent dans une fenêtre " +
             "à part sur son écran, jamais dans ta sortie. N'essaie jamais d'afficher une valeur toi-même. " +
             "Mode d'emploi complet : skill local-secrets:secrets.";
@@ -298,6 +308,28 @@ static class Hooks
         return o;
     }
 
+    // Vrai la première fois que cet avis est demandé dans cette session de Claude Code.
+    static bool NoticeOnce(string? session, string notice)
+    {
+        try
+        {
+            var path = Path.Combine(Vault.Home, "notices.json");
+            var seen = File.Exists(path)
+                ? JsonSerializer.Deserialize(File.ReadAllText(path), JsonContext.Default.DictionaryStringString) ?? new()
+                : new Dictionary<string, string>();
+            var key = session ?? "";
+            if (seen.TryGetValue(notice, out var last) && last == key) return false;
+            seen[notice] = key;
+            Paths.CreatePrivateDirectory(Vault.Home);
+            Paths.WritePrivate(path, JsonSerializer.Serialize(seen, JsonContext.Default.DictionaryStringString));
+            return true;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
     // Une fois par semaine au plus, tant qu'aucune sauvegarde portable récente n'existe.
     static string? BackupReminder()
     {
@@ -310,8 +342,7 @@ static class Hooks
             s.LastBackupReminder = DateTime.Now;
             s.Save();
             var since = s.LastBackup is { } b ? $"depuis le {b:dd.MM.yyyy}" : "jamais faite";
-            return $"local-secrets : sauvegarde du coffre ({count} secret(s)) {since}. Sans elle, un changement de PC ou de mot de passe " +
-                   "Windows peut tout rendre illisible. Dans ton terminal : secret backup D:\\coffre.lsbackup";
+            return $"local-secrets : sauvegarde du coffre ({count} secret(s)) {since}. {Platform.Current.BackupHint}";
         }
         catch
         {
@@ -355,7 +386,7 @@ static class Hooks
 
     static string PrivateKeyMessage(string full) =>
         $"Lecture bloquée par local-secrets : {Path.GetFileName(full)} contient une clé privée. Pour SSH, l'utilisateur l'ajoute " +
-        "une fois à l'agent ssh de Windows (ssh-add), ensuite ssh s'en sert sans que tu la lises. Si une commande a besoin " +
+        $"une fois à {Platform.Current.SshAgentName} (ssh-add), ensuite ssh s'en sert sans que tu la lises. Si une commande a besoin " +
         "du fichier, passe-lui son chemin sans l'ouvrir.";
 
     static JsonObject Deny(string reason, List<ConversionReport>? converted = null)

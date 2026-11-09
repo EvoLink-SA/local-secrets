@@ -6,7 +6,8 @@ using System.Text.Json.Nodes;
 namespace LocalSecrets;
 
 // Sauvegarde portable du coffre, chiffrée par phrase de passe (PBKDF2-SHA256 + AES-256-GCM).
-// Indispensable pour changer de PC : un coffre DPAPI ne se relit que sous le même compte Windows.
+// Indispensable pour changer de PC ou de système : le coffre lui-même ne se relit que sous le même
+// compte, sur la même machine. C'est aussi le passage d'un coffre Windows vers Linux.
 static class BackupCmd
 {
     const int Iterations = 600_000;
@@ -14,20 +15,30 @@ static class BackupCmd
     public static int Backup(string[] args)
     {
         Ui.RequireInteractive("secret backup");
+        var partial = args.Contains("--partial");
         var file = Path.GetFullPath(args.FirstOrDefault(a => !a.StartsWith('-'))
                                     ?? $"local-secrets-{DateTime.Now:yyyyMMdd-HHmm}.lsbackup");
+
+        // Une sauvegarde qui omettrait des secrets sans le dire perdrait ces valeurs au changement de poste.
+        var vault = Vault.Load();
+        var unreadable = new List<string>();
+        var values = Vault.DecryptAll(vault, unreadable);
+        if (unreadable.Count > 0 && !partial)
+            throw new UserError($"{unreadable.Count} secret(s) illisible(s) ici ({string.Join(", ", unreadable)}) : sauvegarde " +
+                                "annulée. Relance avec --partial pour sauvegarder seulement les autres.");
+
         var pass = Ui.ReadSecret("Phrase de passe pour la sauvegarde (12 caractères minimum) : ");
         if (pass.Length < 12) throw new UserError("phrase trop courte, 12 caractères minimum.");
         if (Ui.ReadSecret("Confirmation : ") != pass) throw new UserError("les deux saisies diffèrent.");
 
-        var vault = Vault.Load();
         var secrets = new JsonObject();
-        foreach (var (name, value) in Vault.DecryptAll(vault)) secrets[name] = value;
+        foreach (var (name, value) in values) secrets[name] = value;
         var namespaces = new JsonObject();
         foreach (var (ns, entry) in vault.Namespaces) namespaces[ns] = entry.Path;
         var plain = new JsonObject { ["secrets"] = secrets, ["namespaces"] = namespaces };
 
-        File.WriteAllText(file, EncryptPayload(Encoding.UTF8.GetBytes(plain.ToJsonString()), pass), new UTF8Encoding(false));
+        Paths.WritePrivate(file, EncryptPayload(Encoding.UTF8.GetBytes(plain.ToJsonString()), pass));
+        if (unreadable.Count > 0) Console.WriteLine($"{unreadable.Count} secret(s) illisible(s) laissé(s) de côté (--partial).");
         Console.WriteLine($"{secrets.Count} secret(s) sauvegardé(s) dans {file}.");
         var settings = Settings.Load();
         settings.LastBackup = DateTime.Now;
@@ -59,7 +70,7 @@ static class BackupCmd
             }
             return n;
         });
-        Console.WriteLine($"{count} secret(s) restauré(s) dans le coffre de ce compte Windows.");
+        Console.WriteLine($"{count} secret(s) restauré(s) dans le coffre de ce compte.");
         return 0;
     }
 

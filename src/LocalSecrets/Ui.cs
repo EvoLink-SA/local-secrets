@@ -70,11 +70,13 @@ static class Log
     {
         try
         {
-            Directory.CreateDirectory(Vault.Home);
+            Paths.CreatePrivateDirectory(Vault.Home);
             var path = Path.Combine(Vault.Home, "local-secrets.log");
             var info = new FileInfo(path);
             if (info.Exists && info.Length > 1_000_000) File.Move(path, path + ".1", overwrite: true);
+            var created = !File.Exists(path);
             File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{Environment.ProcessId}] {line}{Environment.NewLine}");
+            if (created) Paths.RestrictToOwner(path);
         }
         catch
         {

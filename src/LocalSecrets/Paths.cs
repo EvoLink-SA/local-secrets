@@ -24,6 +24,43 @@ static class Paths
     public static readonly StringComparison Comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
     public static readonly StringComparer Comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
+    // Dossier et fichiers du coffre, réservés à ce compte : 0700 et 0600 hors Windows. Sous Windows,
+    // le profil utilisateur protège déjà son contenu et rien ne change.
+    const UnixFileMode PrivateFile = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+    const UnixFileMode PrivateDir = PrivateFile | UnixFileMode.UserExecute;
+
+    public static void CreatePrivateDirectory(string dir)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(dir);
+            return;
+        }
+        Directory.CreateDirectory(dir, PrivateDir);
+        File.SetUnixFileMode(dir, PrivateDir);
+    }
+
+    public static void WritePrivate(string path, string text) => WritePrivate(path, new UTF8Encoding(false).GetBytes(text));
+
+    // Créé directement en 0600 : le contenu n'est jamais lisible par les autres, même un instant.
+    public static void WritePrivate(string path, byte[] bytes)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            File.WriteAllBytes(path, bytes);
+            return;
+        }
+        using (var fs = new FileStream(path, new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, UnixCreateMode = PrivateFile }))
+            fs.Write(bytes);
+        File.SetUnixFileMode(path, PrivateFile);
+    }
+
+    // Fichier créé par un autre moyen (copie, ajout en fin de fichier) : ramené à 0600.
+    public static void RestrictToOwner(string path)
+    {
+        if (!OperatingSystem.IsWindows() && File.Exists(path)) File.SetUnixFileMode(path, PrivateFile);
+    }
+
     // .env, .env.prod, prod.env, docker.env... mais pas .env.example ni les modèles.
     public static bool IsEnvFileName(string? fileName)
     {

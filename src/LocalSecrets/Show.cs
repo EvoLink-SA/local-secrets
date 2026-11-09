@@ -147,8 +147,8 @@ static class DisplayGuard
     {
         try
         {
-            Directory.CreateDirectory(Vault.Home);
-            File.WriteAllText(FilePath, o.ToJsonString());
+            Paths.CreatePrivateDirectory(Vault.Home);
+            Paths.WritePrivate(FilePath, o.ToJsonString());
         }
         catch
         {
@@ -157,7 +157,7 @@ static class DisplayGuard
     }
 }
 
-// « secret env » : pour le chargement automatique du profil PowerShell de l'utilisateur.
+// « secret env » : pour le chargement automatique dans le terminal de l'utilisateur (profil du shell).
 // Renvoie en JSON les secrets du projet du dossier courant ; la sortie part dans une variable du
 // profil, jamais à l'écran. Refusé depuis Claude Code et depuis une entrée redirigée.
 static class EnvCmd
@@ -165,7 +165,7 @@ static class EnvCmd
     public static int Run(string[] args)
     {
         if (Ui.FromClaude || Console.IsInputRedirected)
-            throw new UserError("« secret env » est réservé au chargement automatique de ton terminal PowerShell.");
+            throw new UserError("« secret env » est réservé au chargement automatique de ton terminal.");
         var dir = Environment.CurrentDirectory;
         for (var i = 0; i < args.Length; i++)
             if (args[i] == "--dir" && i + 1 < args.Length) dir = args[++i];

@@ -8,14 +8,50 @@ sealed partial class WindowsPlatform : IPlatform
 {
     public string ProtectionName => "DPAPI";
 
+    public string ProtectionId => "dpapi";
+
     public string ExecutableName => "secret.exe";
 
     public string InstallScript => "install.ps1";
+
+    public string ProtectionDescription => "DPAPI Windows";
+
+    public string ShellHints(string exe) =>
+        $"Si « secret » est introuvable (outil PowerShell notamment), appelle-le par son chemin : & '{exe}' run -- <commande>. " +
+        "Dans l'outil Bash (Git Bash), un argument qui commence par / est converti en chemin : écris //c au lieu de /c. ";
+
+    public string BackupHint =>
+        "Sans elle, un changement de PC ou de mot de passe Windows peut tout rendre illisible. Dans ton terminal : secret backup D:\\coffre.lsbackup";
+
+    public string SshAgentName => "l'agent ssh de Windows";
+
+    public string UnreadableHint => "Le coffre a peut-être été créé sous un autre compte Windows : l'utilisateur lance « secret doctor » dans son terminal.";
 
     // DPAPI, portée utilisateur courant : seul ce compte Windows sur cette machine peut relire.
     public byte[] Protect(byte[] data, byte[] entropy) => Native.Protect(data, entropy);
 
     public byte[] Unprotect(byte[] data, byte[] entropy) => Native.Unprotect(data, entropy);
+
+    // Mutex nommé de la session : sous Windows, il est commun à tous les processus de l'utilisateur.
+    public IDisposable? LockVault(TimeSpan timeout)
+    {
+        var mutex = new Mutex(false, @"Local\local-secrets-vault");
+        bool owned;
+        try { owned = mutex.WaitOne(timeout); }
+        catch (AbandonedMutexException) { owned = true; }
+        if (owned) return new MutexLock(mutex);
+        mutex.Dispose();
+        return null;
+    }
+
+    sealed class MutexLock(Mutex mutex) : IDisposable
+    {
+        public void Dispose()
+        {
+            mutex.ReleaseMutex();
+            mutex.Dispose();
+        }
+    }
 
     [GeneratedRegex(@"^/([a-zA-Z])(/|$)")]
     private static partial Regex MsysDriveRx();

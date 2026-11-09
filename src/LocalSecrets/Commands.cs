@@ -60,7 +60,7 @@ static partial class Commands
     static void Help()
     {
         Console.WriteLine($"""
-            secret (local-secrets) {Version} : secrets locaux chiffrés par DPAPI, utilisables par Claude sans être vus.
+            secret (local-secrets) {Version} : secrets locaux chiffrés ({Platform.Current.ProtectionName}), utilisables par Claude sans être vus.
 
             Utilisation courante
               secret status [FICHIER]          état de chaque clé d'un .env : chiffrée, en clair, à chiffrer
@@ -94,7 +94,9 @@ static partial class Commands
                                                restaure des .env tels qu'avant leur conversion ; --ignore les
                                                marque pour ne plus être convertis ; --dry-run liste sans rien faire
               secret rm NOM                    supprime un secret du coffre
-              secret backup [FICHIER]          sauvegarde chiffrée par phrase de passe
+              secret backup [FICHIER] [--partial]
+                                               sauvegarde chiffrée par phrase de passe ; --partial accepte
+                                               de laisser de côté les secrets illisibles ici
               secret restore FICHIER           réimporte une sauvegarde
 
             Masquage générique des sorties ([masqué:CLÉ])
@@ -110,8 +112,8 @@ static partial class Commands
                                                off : ne plus modifier les .env de ce dossier ; Claude ne
                                                pourra plus les lire s'ils contiennent des secrets en clair
 
-            Terminal PowerShell
-              secret env                       utilisé par le profil pour charger les secrets d'un projet
+            Chargement automatique dans le terminal
+              secret env                       utilisé par le profil du shell pour charger les secrets d'un projet
 
             Entretien
               secret migrate [--from DOSSIER]  fusionne les anciens coffres (ou une copie) dans le coffre unique

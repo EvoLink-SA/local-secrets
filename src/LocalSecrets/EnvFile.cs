@@ -27,7 +27,7 @@ sealed partial class EnvFile
 {
     public const string HeaderMarker = "local-secrets:";
     public const string Header =
-        "# local-secrets: les valeurs secret:// sont chiffrées dans le coffre local (DPAPI). " +
+        "# local-secrets: les valeurs secret:// sont chiffrées dans le coffre local. " +
         "Une valeur ajoutée en clair sera chiffrée au prochain accès.";
 
     public List<string> Lines { get; } = new();

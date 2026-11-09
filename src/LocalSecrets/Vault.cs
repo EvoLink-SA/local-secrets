@@ -21,6 +21,9 @@ sealed class NamespaceEntry
 sealed class VaultData
 {
     public int Version { get; set; } = 1;
+
+    // Protection des valeurs (IPlatform.ProtectionId). Absente dans les coffres d'avant la 0.2 : DPAPI.
+    public string? Protection { get; set; }
     public Dictionary<string, NamespaceEntry> Namespaces { get; set; } = new();
     public Dictionary<string, SecretEntry> Secrets { get; set; } = new();
 }
@@ -84,29 +87,32 @@ static partial class Vault
     // Lecture, modification et écriture sous verrou : plusieurs hooks peuvent tourner en parallèle.
     public static T Update<T>(Func<VaultData, T> change)
     {
-        using var mutex = new Mutex(false, @"Local\local-secrets-vault");
-        bool owned;
-        try { owned = mutex.WaitOne(TimeSpan.FromSeconds(15)); }
-        catch (AbandonedMutexException) { owned = true; }
-        if (!owned) throw new UserError("le coffre est occupé par un autre processus, réessaie.");
-        try
-        {
-            var data = Load();
-            var result = change(data);
-            Save(data);
-            return result;
-        }
-        finally
-        {
-            mutex.ReleaseMutex();
-        }
+        using var vaultLock = Platform.Current.LockVault(TimeSpan.FromSeconds(15))
+                              ?? throw new UserError("le coffre est occupé par un autre processus, réessaie.");
+        var data = Load();
+        CheckProtection(data);
+        var result = change(data);
+        data.Protection = Platform.Current.ProtectionId;
+        Save(data);
+        return result;
+    }
+
+    // Un coffre se relit seulement avec la protection qui l'a créé : on n'y mélange pas deux protections.
+    public static void CheckProtection(VaultData data)
+    {
+        var expected = Platform.Current.ProtectionId;
+        var actual = data.Protection ?? (data.Secrets.Count > 0 ? "dpapi" : expected);
+        if (actual != expected)
+            throw new UserError($"ce coffre a été créé avec une autre protection ({actual}) que celle de ce système ({expected}), " +
+                                "par exemple copié depuis Windows. Pour changer de système : « secret backup » là où il a été créé, " +
+                                "puis « secret restore » ici.");
     }
 
     static void Save(VaultData data)
     {
-        Directory.CreateDirectory(Home);
+        Paths.CreatePrivateDirectory(Home);
         var tmp = FilePath + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(data, JsonContext.Default.VaultData), new UTF8Encoding(false));
+        Paths.WritePrivate(tmp, JsonSerializer.Serialize(data, JsonContext.Default.VaultData));
         for (var attempt = 0; ; attempt++)
         {
             try
@@ -139,12 +145,13 @@ static partial class Vault
         }
         catch (Exception e)
         {
-            throw new UserError($"impossible de déchiffrer « {name} » ({e.Message}). Le coffre a peut-être été créé " +
-                                "sous un autre compte Windows : restaure une sauvegarde avec « secret restore ».");
+            throw e as UserError ?? new UserError($"impossible de déchiffrer « {name} » ({e.Message}). Le coffre a peut-être été créé " +
+                                                  "sous un autre compte ou sur une autre machine : restaure une sauvegarde avec « secret restore ».");
         }
     }
 
-    public static List<(string Name, string Value)> DecryptAll(VaultData d)
+    // Les secrets illisibles (autre compte, coffre verrouillé) sont écartés, et nommés dans unreadable.
+    public static List<(string Name, string Value)> DecryptAll(VaultData d, ICollection<string>? unreadable = null)
     {
         var list = new List<(string, string)>();
         foreach (var (name, entry) in d.Secrets)
@@ -156,6 +163,7 @@ static partial class Vault
             catch (Exception e)
             {
                 Log.Write($"déchiffrement impossible pour {name} : {e.Message}");
+                unreadable?.Add(name);
             }
         }
         return list;
@@ -247,7 +255,8 @@ static partial class Vault
 
     public static void BackupEnvFile(string fullPath, byte[] original)
     {
-        Directory.CreateDirectory(BackupDir);
+        Paths.CreatePrivateDirectory(Home);
+        Paths.CreatePrivateDirectory(BackupDir);
         var record = new EnvBackup
         {
             Path = fullPath,
@@ -255,7 +264,7 @@ static partial class Vault
             Data = Convert.ToBase64String(Platform.Current.Protect(original, Entropy("backup"))),
         };
         var file = Path.Combine(BackupDir, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Guid.NewGuid().ToString("N")[..8]}.json");
-        File.WriteAllText(file, JsonSerializer.Serialize(record, JsonContext.Default.EnvBackup), new UTF8Encoding(false));
+        Paths.WritePrivate(file, JsonSerializer.Serialize(record, JsonContext.Default.EnvBackup));
 
         // On garde les 10 dernières sauvegardes de chaque fichier.
         foreach (var old in ListBackups()

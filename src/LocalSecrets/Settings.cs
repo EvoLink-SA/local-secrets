@@ -39,8 +39,8 @@ sealed class Settings
 
     public void Save()
     {
-        Directory.CreateDirectory(Vault.Home);
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, JsonContext.Default.Settings), new UTF8Encoding(false));
+        Paths.CreatePrivateDirectory(Vault.Home);
+        Paths.WritePrivate(FilePath, JsonSerializer.Serialize(this, JsonContext.Default.Settings));
     }
 
     // La variable d'environnement, posée par l'utilisateur au lancement de Claude Code, l'emporte

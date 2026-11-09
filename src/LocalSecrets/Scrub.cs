@@ -62,7 +62,7 @@ static class Scrub
             if (dryRun) continue;
             var lastWrite = info.LastWriteTimeUtc;
             var tmp = file + ".scrub.tmp";
-            File.WriteAllBytes(tmp, output.ToArray());
+            Paths.WritePrivate(tmp, output.ToArray());
             File.Move(tmp, file, overwrite: true);
             File.SetLastWriteTimeUtc(file, lastWrite);
         }

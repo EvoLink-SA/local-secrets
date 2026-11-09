@@ -287,6 +287,12 @@ static class SelfTest
             Check(!Paths.Normalize(Path.GetTempPath()).Contains('~'), "noms courts 8.3 remplacés par les noms longs");
         }
 
+        var otherProtection = false;
+        try { Vault.CheckProtection(new VaultData { Protection = platform.ProtectionId + "-autre" }); } catch (UserError) { otherProtection = true; }
+        var legacyEmpty = true;
+        try { Vault.CheckProtection(new VaultData()); } catch (UserError) { legacyEmpty = false; }
+        Check(otherProtection && legacyEmpty, "coffre d'une autre protection refusé, coffre vide accepté");
+
         Console.WriteLine("Chiffrement");
         var blob = platform.Protect([1, 2, 3], [9]);
         Check(platform.Unprotect(blob, [9]).SequenceEqual(new byte[] { 1, 2, 3 }), $"{platform.ProtectionName} aller-retour");
