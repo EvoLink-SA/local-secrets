@@ -4,7 +4,7 @@ namespace LocalSecrets;
 
 // Ce qui dépend du système d'exploitation : protection des valeurs, console, lancement de
 // programmes, anciens emplacements, contrôles de « secret doctor ». Le reste du code ne passe
-// que par Platform.Current. Seul Windows est implémenté pour l'instant.
+// que par Platform.Current : WindowsPlatform (DPAPI) ou LinuxPlatform (KeyStore, trousseau noyau).
 interface IPlatform
 {
     // Nom de la protection des valeurs, pour doctor et les autotests (DPAPI sous Windows).
@@ -72,9 +72,12 @@ interface IPlatform
 
 static class Platform
 {
-    static readonly IPlatform? current = OperatingSystem.IsWindows() ? new WindowsPlatform() : null;
+    static readonly IPlatform? current =
+        OperatingSystem.IsWindows() ? new WindowsPlatform()
+        : OperatingSystem.IsLinux() ? new LinuxPlatform()
+        : null;
 
-    public static IPlatform Current => current ?? throw new UserError("local-secrets ne fonctionne pour l'instant que sous Windows.");
+    public static IPlatform Current => current ?? throw new UserError("local-secrets ne fonctionne que sous Windows et Linux.");
 
     // Noms de variables d'environnement : insensibles à la casse sous Windows, sensibles ailleurs.
     public static readonly StringComparer VariableComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;

@@ -10,11 +10,16 @@ static partial class Guards
         "Le coffre local-secrets ne se lit pas directement. Utilise « secret list » pour voir les noms " +
         "et « secret run -- <commande> » pour utiliser les valeurs.";
 
-    [GeneratedRegex(@"\bsecret(?:\.exe)?[""']?\s+(?<verb>reveal|undo|unprotect|backup|restore|rm|remove|shell|env)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\bsecret(?:\.exe)?[""']?\s+(?<verb>reveal|undo|unprotect|backup|restore|rm|remove|shell|env|init|unlock|passwd)\b", RegexOptions.IgnoreCase)]
     private static partial Regex ForbiddenVerbRx();
 
-    [GeneratedRegex(@"local-secrets[\\/]+(vault\.json|backups|config\.json)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"local-secrets[\\/]+(vault\.json|backups|config\.json|key\.json)", RegexOptions.IgnoreCase)]
     private static partial Regex VaultPathRx();
+
+    // Linux : l'environnement et la mémoire d'un processus lancé par secret run sont lisibles par le
+    // même compte (/proc/PID/environ, ps e, débogueurs), comme la clé du coffre dans les trousseaux.
+    [GeneratedRegex(@"/proc/[^\s/]+/(?:environ|mem)\b|(?<![\w/.-])ps\s+(?!-)[a-zA-Z]*e[a-zA-Z]*(?=[\s|;&)]|$)|\b(?:gdb|strace|ltrace)\b[^|;&\n]*\s-p\b|\bgcore\b|\bkeyctl\s+(?:print|pipe|read)\b|\bsecret-tool\s+lookup\b|org\.freedesktop\.secrets|\bkwallet-query\b", RegexOptions.IgnoreCase)]
+    private static partial Regex ProcessSecretsRx();
 
     [GeneratedRegex(@"ProtectedData\]?\s*::\s*Unprotect|CryptUnprotectData|Unprotect-CmsMessage|ConvertFrom-SecureString\b[^|;\r\n]*-AsPlainText|GetNetworkCredential\(\)\s*\.\s*Password", RegexOptions.IgnoreCase)]
     private static partial Regex DpapiRx();
@@ -35,7 +40,7 @@ static partial class Guards
     private static partial Regex ConfigOffRx();
 
     // Lecture du presse-papiers ou capture d'écran depuis un shell.
-    [GeneratedRegex(@"Get-Clipboard|Clipboard\]::Get|\.GetText\(\)|CopyFromScreen|pbpaste|xclip|xsel|PrintWindow", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"Get-Clipboard|Clipboard\]::Get|\.GetText\(\)|CopyFromScreen|pbpaste|xclip|xsel|PrintWindow|wl-paste|xdotool|\bscrot\b|\bgrim\b|\bmaim\b|gnome-screenshot|\bspectacle\b|flameshot|\bxwd\b|\bimport\s+-window", RegexOptions.IgnoreCase)]
     public static partial Regex ScreenOrClipboardRx();
 
     public const string DisplayDenied =
@@ -98,6 +103,10 @@ static partial class Guards
         if (DpapiRx().IsMatch(text))
             return "local-secrets bloque le déchiffrement direct de secrets (DPAPI, SecureString en clair). " +
                    "Utilise « secret run », qui injecte les valeurs sans les afficher.";
+        if (ProcessSecretsRx().IsMatch(text))
+            return "local-secrets bloque la lecture de l'environnement ou de la mémoire d'un processus (/proc/PID/environ, ps e, " +
+                   "débogueurs) et des trousseaux : les valeurs injectées par secret run s'y trouvent. Utilise « secret run », " +
+                   "et pour vérifier qu'une variable est bien présente, teste-la sans l'afficher (par exemple [ -n \"$VAR\" ]).";
         return null;
     }
 

@@ -14,7 +14,7 @@ static partial class Commands
     [
         "help", "--help", "-h", "version", "--version", "set", "list", "ls", "status", "import", "protect", "unprotect",
         "run", "shell", "reveal", "rm", "remove", "undo", "backup", "restore", "scrub", "doctor", "selftest", "hook", "config",
-        "show", "env", "migrate", "generate", "setenv",
+        "show", "env", "migrate", "generate", "setenv", "init", "unlock", "lock", "passwd",
     ];
 
     public static bool IsKnown(string arg) => Known.Contains(arg, StringComparer.OrdinalIgnoreCase);
@@ -50,6 +50,10 @@ static partial class Commands
             case "migrate": return Migrate(rest);
             case "generate": return Generate(rest);
             case "setenv": return SetEnv(rest);
+            case "init": case "unlock": case "lock": case "passwd":
+                return OperatingSystem.IsLinux()
+                    ? KeyCmd.Run(args[0].ToLowerInvariant(), rest)
+                    : throw new UserError("inutile sous Windows : le coffre y est protégé par DPAPI, sans phrase de passe.");
             case "doctor": return Doctor.Run();
             case "selftest": return SelfTest.Run();
             case "hook": return Hooks.Run(rest.Length > 0 ? rest[0] : "");
@@ -111,6 +115,12 @@ static partial class Commands
               secret config convert on|off [--here | --project CHEMIN]
                                                off : ne plus modifier les .env de ce dossier ; Claude ne
                                                pourra plus les lire s'ils contiennent des secrets en clair
+
+            Clé du coffre (Linux seulement, terminal de l'utilisateur)
+              secret init [--for DURÉE]        crée la clé du coffre, protégée par une phrase de passe
+              secret unlock [--for DURÉE]      déverrouille pour une durée (12h par défaut ; 30m, 8h, 2d)
+              secret lock                      reverrouille tout de suite
+              secret passwd                    change la phrase de passe
 
             Chargement automatique dans le terminal
               secret env                       utilisé par le profil du shell pour charger les secrets d'un projet

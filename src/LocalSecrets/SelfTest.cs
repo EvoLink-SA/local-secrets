@@ -236,8 +236,10 @@ static class SelfTest
         Check(M("machine api.example.com\n  login bob\n  password Zq8rT4pLmX9\n").Contains(OutputMasker.Marker("MOT_DE_PASSE_NETRC")), ".netrc : mot de passe masqué");
         const string prose = "le password reset link a été envoyé\n";
         Check(M(prose) == prose, "phrase avec « password » hors .netrc : visible");
-        Check(Paths.IsCredentialFileName(@"C:\Users\x\.pgpass") && Paths.IsCredentialFileName(@"C:\Users\x\.aws\credentials") && Paths.IsCredentialFileName(@"C:\Users\x\_netrc")
-              && !Paths.IsCredentialFileName(@"C:\projet\docs\credentials.md"), "fichiers d'identifiants reconnus (.pgpass, .netrc, .aws\\credentials)");
+        var home = Path.Combine(Path.GetTempPath(), "x");
+        Check(Paths.IsCredentialFileName(Path.Combine(home, ".pgpass")) && Paths.IsCredentialFileName(Path.Combine(home, ".aws", "credentials"))
+              && Paths.IsCredentialFileName(Path.Combine(home, "_netrc")) && !Paths.IsCredentialFileName(Path.Combine(home, "docs", "credentials.md")),
+              "fichiers d'identifiants reconnus (.pgpass, .netrc, .aws\\credentials)");
 
         Console.WriteLine("0.1.4 : commandes sûres pour Claude");
         Check(Guards.CheckForbidden("secret undo .env --dry-run") == null, "secret undo --dry-run autorisé");
@@ -286,6 +288,28 @@ static class SelfTest
             Check(platform.ResolveCommand(@"C:\x\outil.cmd", ["a b"]) is { Raw: { } raw } && raw.Contains("\"a b\""), "script .cmd lancé par cmd, arguments entre guillemets");
             Check(!Paths.Normalize(Path.GetTempPath()).Contains('~'), "noms courts 8.3 remplacés par les noms longs");
         }
+        else if (OperatingSystem.IsLinux())
+        {
+            Check(Paths.Full("/c/tools/projet/.env", "/home") == "/c/tools/projet/.env", "chemin /c/... laissé tel quel");
+            Check(!Paths.IsInProject("/TMP/Projet/sub/.env", "/tmp/projet"), "chemins comparés en tenant compte de la casse");
+            Check(platform.FindExecutable("sh") is { } sh && sh.StartsWith('/'), "programme trouvé dans le PATH");
+            var priv = Path.Combine(Path.GetTempPath(), "ls-selftest-" + Guid.NewGuid().ToString("N")[..8]);
+            try
+            {
+                Paths.CreatePrivateDirectory(priv);
+                var file = Path.Combine(priv, "f.json");
+                Paths.WritePrivate(file, "{}");
+                Check(File.GetUnixFileMode(priv) == (UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute)
+                      && File.GetUnixFileMode(file) == (UnixFileMode.UserRead | UnixFileMode.UserWrite), "dossier en 700, fichier en 600");
+            }
+            finally
+            {
+                try { Directory.Delete(priv, recursive: true); } catch { }
+            }
+            Check(Guards.CheckForbidden("cat /proc/1234/environ") != null && Guards.CheckForbidden("ps eww") != null
+                  && Guards.CheckForbidden("keyctl print 123") != null && Guards.CheckForbidden("ps -ef | grep app") == null
+                  && Guards.CheckForbidden("ps aux") == null, "environnement d'un processus et trousseaux : refusés ; ps -ef et ps aux : permis");
+        }
 
         var otherProtection = false;
         try { Vault.CheckProtection(new VaultData { Protection = platform.ProtectionId + "-autre" }); } catch (UserError) { otherProtection = true; }
@@ -294,11 +318,41 @@ static class SelfTest
         Check(otherProtection && legacyEmpty, "coffre d'une autre protection refusé, coffre vide accepté");
 
         Console.WriteLine("Chiffrement");
-        var blob = platform.Protect([1, 2, 3], [9]);
-        Check(platform.Unprotect(blob, [9]).SequenceEqual(new byte[] { 1, 2, 3 }), $"{platform.ProtectionName} aller-retour");
-        var tampered = false;
-        try { platform.Unprotect(blob, [8]); } catch { tampered = true; }
-        Check(tampered, $"{platform.ProtectionName} refuse une autre entropie (blob déplacé sous un autre nom)");
+        if (OperatingSystem.IsWindows())
+        {
+            var blob = platform.Protect([1, 2, 3], [9]);
+            Check(platform.Unprotect(blob, [9]).SequenceEqual(new byte[] { 1, 2, 3 }), $"{platform.ProtectionName} aller-retour");
+            var tampered = false;
+            try { platform.Unprotect(blob, [8]); } catch { tampered = true; }
+            Check(tampered, $"{platform.ProtectionName} refuse une autre entropie (blob déplacé sous un autre nom)");
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            // Clé de test générée ici : le coffre réel et sa clé ne sont jamais touchés.
+            using var key = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var blob = KeyStore.Encrypt(KeyStore.Point(key), [1, 2, 3], [9]);
+            Check(KeyStore.Decrypt(key, blob, [9]).SequenceEqual(new byte[] { 1, 2, 3 }), "ECIES P-256 aller-retour");
+            Check(!KeyStore.Encrypt(KeyStore.Point(key), [1, 2, 3], [9]).SequenceEqual(blob), "ECIES : deux chiffrements de la même valeur diffèrent");
+            var tampered = false;
+            try { KeyStore.Decrypt(key, blob, [8]); } catch { tampered = true; }
+            Check(tampered, "ECIES refuse une autre entropie (blob déplacé sous un autre nom)");
+            using var other = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var stranger = false;
+            try { KeyStore.Decrypt(other, blob, [9]); } catch { stranger = true; }
+            Check(stranger, "ECIES : une autre clé privée ne déchiffre pas");
+            if (LinuxNative.KeyringAvailable(out var why))
+            {
+                var name = "local-secrets:selftest-" + Guid.NewGuid().ToString("N")[..8];
+                LinuxNative.Store(name, [4, 5, 6], TimeSpan.FromSeconds(30));
+                Check(LinuxNative.Read(name) is [4, 5, 6] && LinuxNative.Remaining(name) is { TotalSeconds: > 0 and <= 30 }, "trousseau noyau : rangement, relecture, durée");
+                LinuxNative.Drop(name);
+                Check(LinuxNative.Read(name) == null, "trousseau noyau : clé retirée");
+            }
+            else
+            {
+                Console.WriteLine($"  info   trousseau noyau indisponible ({why}) : tests ignorés");
+            }
+        }
         var payload = BackupCmd.EncryptPayload(Encoding.UTF8.GetBytes("{\"a\":1}"), "phrase de test assez longue");
         Check(Encoding.UTF8.GetString(BackupCmd.DecryptPayload(payload, "phrase de test assez longue")) == "{\"a\":1}", "sauvegarde : chiffrement et relecture");
         var wrong = false;
