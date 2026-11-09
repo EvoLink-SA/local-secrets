@@ -21,8 +21,10 @@ sealed class LinuxPlatform : IPlatform
 
     public string ShellHints(string exe) =>
         $"Si « secret » est introuvable, appelle-le par son chemin : '{exe}' run -- <commande>. " +
-        "Si une commande échoue avec « coffre verrouillé », demande à l'utilisateur de lancer « secret unlock » dans son terminal : " +
-        "tu ne peux pas le faire à sa place. ";
+        "Si une commande échoue avec « coffre verrouillé », demande à l'utilisateur de lancer « secret unlock » dans un autre terminal : " +
+        "tu ne peux pas le faire à sa place. Sous Linux, « secret show » n'ouvre pas de fenêtre : c'est aussi à lui de le taper dans " +
+        "un autre terminal. Ne propose jamais le préfixe « ! » de Claude Code pour ces commandes : leur sortie et leur saisie " +
+        "passeraient par la conversation. ";
 
     public string BackupHint =>
         "Sans elle, un changement de PC ou l'oubli de la phrase de passe rend tout illisible. Dans ton terminal : secret backup ~/coffre.lsbackup";

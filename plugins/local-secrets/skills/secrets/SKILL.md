@@ -176,7 +176,8 @@ S'il veut voir des valeurs (pour les recopier dans une interface web, par exempl
 s'ouvre sur son écran ; il confirme, il voit les valeurs, l'écran est effacé à la fermeture. Toi, tu ne
 reçois qu'un accusé de réception. Pendant l'affichage et dix minutes après, les captures d'écran et la
 lecture du presse-papiers te sont refusées : n'insiste pas. Sous Linux, il n'y a pas encore de fenêtre
-à part : demande à l'utilisateur de lancer lui-même `secret show` dans son terminal.
+à part : ne lance pas `secret show` toi-même, demande à l'utilisateur de le taper dans un autre
+terminal (pas avec le préfixe `!`, dont la sortie te reviendrait).
 
 ## Quand c'est l'utilisateur qui lance
 
@@ -272,6 +273,9 @@ des valeurs. C'est la première source d'ennuis. Donc :
 - Demander à l'utilisateur de coller un mot de passe dans le chat. Dis-lui plutôt de taper,
   dans son terminal : `secret set NOM` (saisie masquée). Avec un `.env` dans le dossier
   courant, la référence y est ajoutée automatiquement.
+- Lui proposer le préfixe `!` de Claude Code (`! secret unlock`, `! secret show`, `! secret set`) :
+  la commande tourne alors dans ta session, et sa sortie comme sa saisie passent par la
+  conversation. Ces commandes se tapent dans **un autre terminal**, hors de Claude Code.
 
 ## Dépannage
 
