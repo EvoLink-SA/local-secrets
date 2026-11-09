@@ -56,16 +56,27 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
 done
 
 echo '3. Plugin Claude Code'
-if command -v claude > /dev/null 2>&1; then
-    if claude plugin marketplace list 2>&1 | grep -q 'local-secrets'; then
-        claude plugin marketplace update local-secrets
+claude_path=$(command -v claude 2> /dev/null || true)
+case "$claude_path" in
+    # Sous WSL, le PATH de Windows peut fournir le claude de Windows : il gère sa propre installation.
+    /mnt/*)
+        echo "   $claude_path est le Claude Code de Windows : installe celui de Linux" \
+             "(curl -fsSL https://claude.ai/install.sh | bash), ouvre un nouveau terminal, puis relance ce script."
+        claude_path=windows
+        ;;
+esac
+if [ "$claude_path" = windows ]; then
+    :
+elif [ -n "$claude_path" ]; then
+    if "$claude_path" plugin marketplace list 2>&1 | grep -q 'local-secrets'; then
+        "$claude_path" plugin marketplace update local-secrets
     else
-        claude plugin marketplace add "$root"
+        "$claude_path" plugin marketplace add "$root"
     fi
-    if claude plugin list 2>&1 | grep -q 'local-secrets-linux@local-secrets'; then
-        claude plugin update local-secrets-linux@local-secrets
+    if "$claude_path" plugin list 2>&1 | grep -q 'local-secrets-linux@local-secrets'; then
+        "$claude_path" plugin update local-secrets-linux@local-secrets
     else
-        claude plugin install local-secrets-linux@local-secrets --scope user
+        "$claude_path" plugin install local-secrets-linux@local-secrets --scope user
     fi
 else
     echo "   claude introuvable : installe Claude Code, puis relance ce script (ou : claude plugin marketplace add $root" \

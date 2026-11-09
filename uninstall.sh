@@ -29,14 +29,16 @@ else
 fi
 
 echo '2. Plugin Claude Code'
-if command -v claude > /dev/null 2>&1; then
-    if claude plugin list 2>&1 | grep -q 'local-secrets-linux@local-secrets'; then
-        claude plugin uninstall local-secrets-linux@local-secrets
+claude_path=$(command -v claude 2> /dev/null || true)
+case "$claude_path" in /mnt/*) claude_path= ;; esac   # claude de Windows vu depuis WSL : pas le nôtre
+if [ -n "$claude_path" ]; then
+    if "$claude_path" plugin list 2>&1 | grep -q 'local-secrets-linux@local-secrets'; then
+        "$claude_path" plugin uninstall local-secrets-linux@local-secrets
     else
         echo '   plugin absent.'
     fi
-    if claude plugin marketplace list 2>&1 | grep -q 'local-secrets'; then
-        claude plugin marketplace remove local-secrets
+    if "$claude_path" plugin marketplace list 2>&1 | grep -q 'local-secrets'; then
+        "$claude_path" plugin marketplace remove local-secrets
     else
         echo '   marketplace absente.'
     fi
