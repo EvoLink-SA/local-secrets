@@ -404,10 +404,10 @@ static partial class Commands
             .Concat(vault.Secrets.Values.Select(e => e.Origin).OfType<string>())
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .Select(Paths.Normalize)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(Paths.Comparer)
             .Where(File.Exists)
-            .Where(f => under == null || f.StartsWith(under + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+            .Where(f => under == null || f.StartsWith(under + Path.DirectorySeparatorChar, Paths.Comparison))
+            .OrderBy(f => f, Paths.Comparer)
             .ToList();
 
         var plan = new List<(string File, EnvFile Env, Dictionary<EnvAssignment, string> Map)>();
@@ -520,11 +520,11 @@ static partial class Commands
         if (file == null && under == null) file = Paths.Normalize(".env");
 
         var plan = new List<(string Path, EnvBackup Chosen, string Status, bool Restore)>();
-        foreach (var group in Vault.ListBackups().GroupBy(b => Paths.Normalize(b.Record.Path), StringComparer.OrdinalIgnoreCase))
+        foreach (var group in Vault.ListBackups().GroupBy(b => Paths.Normalize(b.Record.Path), Paths.Comparer))
         {
             var path = group.Key;
-            if (file != null && !path.Equals(file, StringComparison.OrdinalIgnoreCase)) continue;
-            if (under != null && !path.StartsWith(under + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+            if (file != null && !path.Equals(file, Paths.Comparison)) continue;
+            if (under != null && !path.StartsWith(under + Path.DirectorySeparatorChar, Paths.Comparison)) continue;
             var records = group.Select(b => b.Record).OrderBy(r => r.Created).ToList();
             var chosen = since == null ? records[^1] : records.FirstOrDefault(r => r.Created >= since.Value);
             if (chosen == null) continue;
@@ -539,7 +539,7 @@ static partial class Commands
                 ? $"aucune sauvegarde pour {file}"
                 : $"aucun fichier converti sous {under}" + (since != null ? $" depuis le {since:dd.MM.yyyy HH:mm}" : ""));
 
-        foreach (var p in plan.OrderBy(p => p.Path, StringComparer.OrdinalIgnoreCase))
+        foreach (var p in plan.OrderBy(p => p.Path, Paths.Comparer))
             Console.WriteLine($"  {p.Path}  (version du {p.Chosen.Created:dd.MM.yyyy HH:mm}) : {p.Status}");
         var todo = plan.Where(p => p.Restore).ToList();
         if (dryRun || todo.Count == 0)
@@ -602,7 +602,7 @@ static partial class Commands
                 if (project != null)
                 {
                     var p = Paths.Normalize(project);
-                    s.OutputMaskingOffIn.RemoveAll(x => Paths.Normalize(x).Equals(p, StringComparison.OrdinalIgnoreCase));
+                    s.OutputMaskingOffIn.RemoveAll(x => Paths.Normalize(x).Equals(p, Paths.Comparison));
                     if (!on) s.OutputMaskingOffIn.Add(p);
                     Console.WriteLine($"Masquage générique {(on ? "rétabli" : "coupé")} pour {p} et ses sous-dossiers.");
                 }
@@ -630,7 +630,7 @@ static partial class Commands
                 }
                 if (!on) Ui.RequireInteractive("secret config convert off");
                 var p = Paths.Normalize(project);
-                s.ConversionOffIn.RemoveAll(x => Paths.Normalize(x).Equals(p, StringComparison.OrdinalIgnoreCase));
+                s.ConversionOffIn.RemoveAll(x => Paths.Normalize(x).Equals(p, Paths.Comparison));
                 if (!on) s.ConversionOffIn.Add(p);
                 s.Save();
                 Console.WriteLine(on

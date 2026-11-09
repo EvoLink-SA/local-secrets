@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace LocalSecrets;
 
+// Appels natifs Windows, utilisés seulement par WindowsPlatform.
 static class Native
 {
     [StructLayout(LayoutKind.Sequential)]

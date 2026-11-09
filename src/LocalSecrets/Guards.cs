@@ -152,7 +152,7 @@ static partial class Guards
         var envPath = Path.Combine(dir, ".env");
         if (!File.Exists(envPath) || AlreadyInjected(envPath)) return null;
         HashSet<string> keys;
-        try { keys = EnvFile.Load(envPath).Assignments.Select(a => a.Key).ToHashSet(StringComparer.OrdinalIgnoreCase); }
+        try { keys = EnvFile.Load(envPath).Assignments.Select(a => a.Key).ToHashSet(Platform.VariableComparer); }
         catch { return null; }
         foreach (Match m in VariableRx().Matches(tail))
         {
@@ -201,7 +201,7 @@ static partial class Guards
         var result = new List<string>();
         var dirs = new List<string> { cwd };
         var effective = EffectiveCwd(text, cwd);
-        if (!effective.Equals(cwd, StringComparison.OrdinalIgnoreCase)) dirs.Insert(0, effective);
+        if (!effective.Equals(cwd, Paths.Comparison)) dirs.Insert(0, effective);
 
         foreach (Match m in EnvPathRx().Matches(text))
         {
@@ -231,6 +231,6 @@ static partial class Guards
                 }
             }
         }
-        return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return result.Distinct(Paths.Comparer).ToList();
     }
 }

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using System.Text.Json.Nodes;
 
 namespace LocalSecrets;
@@ -13,7 +12,7 @@ static class ShowCmd
     {
         var window = args.Contains("--window");
         // Seule une console créée pour nous (un seul processus attaché, rien de redirigé) peut afficher.
-        if (window && (Console.IsInputRedirected || Console.IsOutputRedirected || Native.ConsoleProcessCount() != 1))
+        if (window && (Console.IsInputRedirected || Console.IsOutputRedirected || !Platform.Current.IsDedicatedConsole()))
             throw new UserError("affichage refusé : ce n'est pas une fenêtre dédiée.");
         var targets = args.Where(a => a != "--window").ToList();
         var cwd = Environment.CurrentDirectory;
@@ -31,13 +30,7 @@ static class ShowCmd
             Console.WriteLine($"(test) fenêtre non ouverte : {items.Count} valeur(s) de {label}");
             return 0;
         }
-        var psi = new ProcessStartInfo(Environment.ProcessPath!)
-        {
-            UseShellExecute = true,
-            WorkingDirectory = cwd,
-            Arguments = string.Join(" ", new[] { "show", "--window" }.Concat(targets).Select(QuoteArg)),
-        };
-        Process.Start(psi);
+        Platform.Current.OpenWindow(cwd, new[] { "show", "--window" }.Concat(targets));
         Console.WriteLine($"Une fenêtre s'est ouverte sur l'écran de l'utilisateur pour {items.Count} valeur(s) de {label}, " +
                           "affichées seulement après sa confirmation. Son contenu ne passe pas par cette sortie : tu ne le verras pas, c'est voulu.");
         return 0;
@@ -113,23 +106,6 @@ static class ShowCmd
             }
         }
         return (string.Join(", ", labels), items);
-    }
-
-    static string QuoteArg(string a)
-    {
-        if (a.Length > 0 && a.IndexOfAny([' ', '\t', '"']) < 0) return a;
-        var sb = new StringBuilder("\"");
-        var backslashes = 0;
-        foreach (var c in a)
-        {
-            if (c == '\\') { backslashes++; continue; }
-            if (c == '"') sb.Append('\\', backslashes * 2 + 1);
-            else sb.Append('\\', backslashes);
-            sb.Append(c);
-            backslashes = 0;
-        }
-        sb.Append('\\', backslashes * 2).Append('"');
-        return sb.ToString();
     }
 }
 

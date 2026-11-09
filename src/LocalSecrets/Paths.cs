@@ -1,9 +1,8 @@
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace LocalSecrets;
 
-static partial class Paths
+static class Paths
 {
     static readonly string[] ExcludedSuffixes = [".example", ".sample", ".template", ".tpl", ".dist", ".defaults", ".schema", ".vault"];
 
@@ -20,6 +19,10 @@ static partial class Paths
     };
 
     public static string UserProfile => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    // Comparaison de chemins : insensible à la casse sous Windows, sensible ailleurs.
+    public static readonly StringComparison Comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    public static readonly StringComparer Comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     // .env, .env.prod, prod.env, docker.env... mais pas .env.example ni les modèles.
     public static bool IsEnvFileName(string? fileName)
@@ -76,12 +79,9 @@ static partial class Paths
         if (fullPath == null) return false;
         fullPath = Normalize(fullPath);
         var home = Path.TrimEndingDirectorySeparator(Normalize(Vault.Home));
-        return fullPath.Equals(home, StringComparison.OrdinalIgnoreCase)
-               || fullPath.StartsWith(home + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        return fullPath.Equals(home, Comparison)
+               || fullPath.StartsWith(home + Path.DirectorySeparatorChar, Comparison);
     }
-
-    [GeneratedRegex(@"^/([a-zA-Z])(/|$)")]
-    private static partial Regex MsysDriveRx();
 
     // Chemin absolu à partir de ce que Claude a écrit : relatif, ~, /c/... (Git Bash) ou Windows.
     public static string? Full(string? path, string cwd)
@@ -90,7 +90,7 @@ static partial class Paths
         try
         {
             var p = path.Trim().Trim('"', '\'');
-            p = MsysDriveRx().Replace(p, m => m.Groups[1].Value.ToUpperInvariant() + @":\");
+            p = Platform.Current.FromShellPath(p);
             if (p == "~" || p.StartsWith("~/") || p.StartsWith("~\\")) p = Path.Combine(UserProfile, p.Length > 2 ? p[2..] : "");
             return Normalize(Path.Combine(cwd, p));
         }
@@ -105,17 +105,17 @@ static partial class Paths
     {
         var full = Path.GetFullPath(path);
         if (!full.Contains('~')) return full;
-        if (Native.LongPath(full) is { } longPath) return longPath;
+        if (Platform.Current.LongPath(full) is { } longPath) return longPath;
         // Fichier pas encore créé : on normalise le dossier parent.
         var dir = Path.GetDirectoryName(full);
-        return dir != null && Native.LongPath(dir) is { } longDir ? Path.Combine(longDir, Path.GetFileName(full)) : full;
+        return dir != null && Platform.Current.LongPath(dir) is { } longDir ? Path.Combine(longDir, Path.GetFileName(full)) : full;
     }
 
     // Dossier trop large pour être parcouru en entier (racine, profil, Bureau...).
     public static bool IsBroad(string dir)
     {
         var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir));
-        if (Path.GetPathRoot(full) is { } root && Path.TrimEndingDirectorySeparator(root).Equals(full, StringComparison.OrdinalIgnoreCase)) return true;
+        if (Path.GetPathRoot(full) is { } root && Path.TrimEndingDirectorySeparator(root).Equals(full, Comparison)) return true;
         string[] broad =
         [
             UserProfile,
@@ -124,7 +124,7 @@ static partial class Paths
             Path.Combine(UserProfile, "Downloads"),
             Environment.GetFolderPath(Environment.SpecialFolder.Windows),
         ];
-        return broad.Any(b => b.Length > 0 && Path.TrimEndingDirectorySeparator(b).Equals(full, StringComparison.OrdinalIgnoreCase));
+        return broad.Any(b => b.Length > 0 && Path.TrimEndingDirectorySeparator(b).Equals(full, Comparison));
     }
 
     // Le fichier appartient-il au projet ouvert ? Il doit être sous la racine, sans dépôt git
@@ -135,7 +135,7 @@ static partial class Paths
         var r = Path.TrimEndingDirectorySeparator(Normalize(root));
         if (IsBroad(r)) return false;
         var f = Normalize(file);
-        if (!f.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!f.StartsWith(r + Path.DirectorySeparatorChar, Comparison)) return false;
         for (var d = Path.GetDirectoryName(f); d != null && d.Length > r.Length; d = Path.GetDirectoryName(d))
             if (Directory.Exists(Path.Combine(d, ".git")) || File.Exists(Path.Combine(d, ".git"))) return false;
         return true;
@@ -174,7 +174,7 @@ static partial class Paths
                 // dossier illisible : ignoré
             }
         }
-        result.Sort(StringComparer.OrdinalIgnoreCase);
+        result.Sort(Comparer);
         return result;
     }
 

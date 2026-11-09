@@ -14,21 +14,22 @@ static class Doctor
         Console.WriteLine($"  exécutable : {Environment.ProcessPath}");
         Console.WriteLine($"  coffre     : {Vault.FilePath}");
 
+        var platform = Platform.Current;
         try
         {
-            Native.Unprotect(Native.Protect([1, 2, 3], [7]), [7]);
-            Ok("DPAPI disponible pour ce compte");
+            platform.Unprotect(platform.Protect([1, 2, 3], [7]), [7]);
+            Ok($"{platform.ProtectionName} disponible pour ce compte");
         }
         catch (Exception e)
         {
-            Bad("DPAPI : " + e.Message);
+            Bad($"{platform.ProtectionName} : " + e.Message);
         }
 
         var vault = Vault.Load();
         var all = Vault.DecryptAll(vault);
         var readable = all.Count;
         if (readable == vault.Secrets.Count) Ok($"{readable} secret(s) dans le coffre, tous déchiffrables");
-        else Bad($"{vault.Secrets.Count - readable} secret(s) illisible(s) sous ce compte Windows (coffre copié depuis ailleurs ?)");
+        else Bad($"{vault.Secrets.Count - readable} secret(s) illisible(s) sous ce compte (coffre copié depuis ailleurs ?)");
 
         // Valeurs faibles : seulement celles qu'un .env utilise encore.
         var weak = all.Where(s => Classifier.IsWeakSecret(s.Value) && IsStillReferenced(vault, s.Name)).Select(s => s.Name).ToList();
@@ -53,12 +54,12 @@ static class Doctor
         {
             var theirs = FileVersionInfo.GetVersionInfo(plugin).ProductVersion?.Split('+')[0] ?? "?";
             if (theirs == mine) Ok($"hooks de Claude à la même version ({theirs})");
-            else Bad($"hooks de Claude en {theirs}, cette commande en {mine} : relance install.ps1, puis redémarre Claude");
+            else Bad($"hooks de Claude en {theirs}, cette commande en {mine} : relance {platform.InstallScript}, puis redémarre Claude");
         }
 
-        var onPath = Runner.FindExecutable("secret");
+        var onPath = platform.FindExecutable("secret");
         if (onPath != null) Ok($"« secret » trouvé dans le PATH : {onPath}");
-        else Bad("« secret » absent du PATH de ce terminal : lance install.ps1");
+        else Bad($"« secret » absent du PATH de ce terminal : lance {platform.InstallScript}");
 
         var installed = Path.Combine(Paths.UserProfile, ".claude", "plugins", "installed_plugins.json");
         if (File.Exists(installed) && File.ReadAllText(installed).Contains("local-secrets", StringComparison.OrdinalIgnoreCase))
@@ -66,11 +67,9 @@ static class Doctor
         else
             Bad("plugin Claude Code non détecté : claude plugin install local-secrets@local-secrets");
 
-        var config = Capture("sc.exe", "qc ssh-agent");
-        var state = Capture("sc.exe", "query ssh-agent");
-        if (config.Contains("DISABLED")) Bad("service ssh-agent désactivé (utile pour les clés SSH, voir README)");
-        else if (state.Contains("RUNNING")) Ok("service ssh-agent démarré");
-        else Bad("service ssh-agent arrêté");
+        foreach (var (problem, message) in platform.DoctorChecks())
+            if (problem) Bad(message);
+            else Ok(message);
 
         Console.WriteLine(problems == 0 ? "Tout est en ordre." : $"{problems} point(s) à regarder.");
         return problems == 0 ? 0 : 1;
@@ -89,26 +88,12 @@ static class Doctor
     {
         var cache = Path.Combine(Paths.UserProfile, ".claude", "plugins", "cache", "local-secrets", "local-secrets");
         if (!Directory.Exists(cache)) return null;
+        var exe = Platform.Current.ExecutableName;
         return Directory.EnumerateDirectories(cache)
             .Select(d => (Dir: d, Ok: Version.TryParse(Path.GetFileName(d), out var v), Version: v))
-            .Where(x => x.Ok && File.Exists(Path.Combine(x.Dir, "bin", "secret.exe")))
+            .Where(x => x.Ok && File.Exists(Path.Combine(x.Dir, "bin", exe)))
             .OrderByDescending(x => x.Version)
-            .Select(x => Path.Combine(x.Dir, "bin", "secret.exe"))
+            .Select(x => Path.Combine(x.Dir, "bin", exe))
             .FirstOrDefault();
-    }
-
-    static string Capture(string file, string arguments)
-    {
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo(file, arguments) { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true })!;
-            var text = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(5000);
-            return text;
-        }
-        catch
-        {
-            return "";
-        }
     }
 }

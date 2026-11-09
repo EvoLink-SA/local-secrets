@@ -128,7 +128,7 @@ static class Redactor
 
     static bool providerRegistered;
 
-    // Motifs en octets pour les sorties de programmes, dans chaque encodage plausible sous Windows.
+    // Motifs en octets pour les sorties de programmes, dans chaque encodage plausible sur ce système.
     public static List<(byte[] Pattern, byte[] Replacement)> BytePatterns(List<RedactPattern> variants, bool allEncodings = true)
     {
         var encodings = new List<Encoding> { new UTF8Encoding(false) };
@@ -138,7 +138,7 @@ static class Redactor
             try
             {
                 if (!providerRegistered) { Encoding.RegisterProvider(CodePagesEncodingProvider.Instance); providerRegistered = true; }
-                foreach (var cp in new[] { Native.GetACP(), Native.GetOEMCP(), Native.GetConsoleOutputCP() }.Distinct())
+                foreach (var cp in Platform.Current.OutputCodePages())
                     if (cp > 0 && cp != 65001)
                         encodings.Add(Encoding.GetEncoding(cp, EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback));
             }

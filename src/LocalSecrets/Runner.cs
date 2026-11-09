@@ -55,13 +55,7 @@ static partial class Runner
         if (raw != null) psi.Arguments = raw;
         else foreach (var a in list) psi.ArgumentList.Add(a);
         foreach (var (k, v) in prepared.Env) psi.Environment[k] = v;
-
-        // WSL ne reprend pas l'environnement Windows : il faut lui nommer les variables à transmettre.
-        if (IsWsl(file) && prepared.Env.Count > 0)
-        {
-            var existing = psi.Environment.TryGetValue("WSLENV", out var w) && !string.IsNullOrEmpty(w) ? w + ":" : "";
-            psi.Environment["WSLENV"] = existing + string.Join(":", prepared.Env.Keys);
-        }
+        Platform.Current.PrepareChildEnvironment(psi, file, prepared.Env.Keys);
 
         if (options.SshPass != null)
         {
@@ -89,9 +83,7 @@ static partial class Runner
         Ui.RequireInteractive("secret shell");
         var (options, _) = Parse(args, allowCommand: false);
         var prepared = Prepare(options, Environment.CurrentDirectory);
-        var shell = FindExecutable("pwsh") ?? FindExecutable("powershell") ?? Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-        var psi = new ProcessStartInfo(shell) { UseShellExecute = false };
-        if (Path.GetFileNameWithoutExtension(shell).StartsWith("p", StringComparison.OrdinalIgnoreCase)) psi.ArgumentList.Add("-NoLogo");
+        var psi = Platform.Current.InteractiveShell();
         foreach (var (k, v) in prepared.Env) psi.Environment[k] = v;
         psi.Environment["LOCAL_SECRETS_SHELL"] = "1";
         Ui.Note($"shell lancé avec {prepared.Env.Count} variable(s) injectée(s). Tape « exit » pour revenir.");
@@ -147,7 +139,7 @@ static partial class Runner
         }
 
         var vault = Vault.Load();
-        var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var env = new Dictionary<string, string>(Platform.VariableComparer);
         var shortNames = new Dictionary<string, string>(StringComparer.Ordinal);
         var missing = new List<string>();
         foreach (var f in envFiles)
@@ -244,71 +236,8 @@ static partial class Runner
 
     static (string File, List<string> Args, string? Raw) ResolveCommand(string[] command)
     {
-        var path = FindExecutable(command[0]) ?? throw new UserError($"programme introuvable : {command[0]}");
-        var rest = command[1..].ToList();
-        switch (Path.GetExtension(path).ToLowerInvariant())
-        {
-            case ".exe":
-            case ".com":
-                return (path, rest, null);
-            case ".cmd":
-            case ".bat":
-                var comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-                var line = "/d /s /c \"" + string.Join(" ", new[] { path }.Concat(rest).Select(CmdQuote)) + "\"";
-                return (comspec, new List<string>(), line);
-            case ".ps1":
-                var ps = FindExecutable("pwsh") ?? FindExecutable("powershell") ?? throw new UserError("PowerShell introuvable");
-                var psArgs = new List<string> { "-NoProfile", "-File", path };
-                psArgs.AddRange(rest);
-                return (ps, psArgs, null);
-            default:
-                throw new UserError($"type de programme non géré : {path}");
-        }
-    }
-
-    static bool IsWsl(string file)
-    {
-        var name = Path.GetFileName(file).ToLowerInvariant();
-        if (name == "wsl.exe") return true;
-        var dir = Path.GetDirectoryName(file) ?? "";
-        return name == "bash.exe" && (dir.EndsWith("System32", StringComparison.OrdinalIgnoreCase)
-                                      || dir.EndsWith("Sysnative", StringComparison.OrdinalIgnoreCase)
-                                      || dir.EndsWith("SysWOW64", StringComparison.OrdinalIgnoreCase));
-    }
-
-    static string CmdQuote(string arg)
-    {
-        if (arg.Length == 0) return "\"\"";
-        if (arg.IndexOfAny([' ', '\t', '"', '&', '|', '<', '>', '^', '(', ')', '%', '!', ',', ';', '=']) < 0) return arg;
-        return "\"" + arg.Replace("\"", "\"\"") + "\"";
-    }
-
-    public static string? FindExecutable(string name)
-    {
-        var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
-            .Split(';', StringSplitOptions.RemoveEmptyEntries)
-            .Append(".ps1")
-            .ToList();
-        IEnumerable<string> Candidates(string basePath)
-        {
-            if (Path.HasExtension(basePath)) yield return basePath;
-            foreach (var ext in extensions) yield return basePath + ext;
-        }
-
-        if (name.Contains('\\') || name.Contains('/'))
-        {
-            var full = Paths.Full(name, Environment.CurrentDirectory);
-            return full == null ? null : Candidates(full).FirstOrDefault(File.Exists);
-        }
-        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
-        {
-            string basePath;
-            try { basePath = Path.Combine(dir.Trim().Trim('"'), name); }
-            catch { continue; }
-            var found = Candidates(basePath).FirstOrDefault(File.Exists);
-            if (found != null) return found;
-        }
-        return null;
+        var path = Platform.Current.FindExecutable(command[0]) ?? throw new UserError($"programme introuvable : {command[0]}");
+        return Platform.Current.ResolveCommand(path, command[1..].ToList());
     }
 
     static void WarnComposeEnvFile(string[] command, string cwd, List<string> envFiles)

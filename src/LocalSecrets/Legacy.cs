@@ -25,22 +25,7 @@ static class Legacy
         }
         if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LOCAL_SECRETS_HOME"))) return list;
 
-        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        list.Add(Path.Combine(local, "local-secrets"));
-        var packages = Path.Combine(local, "Packages");
-        try
-        {
-            if (Directory.Exists(packages))
-                foreach (var p in Directory.EnumerateDirectories(packages))
-                {
-                    var d = Path.Combine(p, "LocalCache", "Local", "local-secrets");
-                    if (File.Exists(Path.Combine(d, "vault.json"))) list.Add(d);
-                }
-        }
-        catch
-        {
-            // dossier des paquets illisible : seul l'emplacement classique est fusionné
-        }
+        list.AddRange(Platform.Current.LegacyVaultDirs());
         return list;
     }
 
@@ -74,8 +59,8 @@ static class Legacy
         var home = Path.TrimEndingDirectorySeparator(Paths.Normalize(Vault.Home));
         var sources = Sources().Concat(extra ?? [])
             .Select(s => Path.TrimEndingDirectorySeparator(Paths.Normalize(s)))
-            .Where(s => !s.Equals(home, StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(s => !s.Equals(home, Paths.Comparison))
+            .Distinct(Paths.Comparer)
             .ToList();
         if (sources.Count == 0) return report;
 

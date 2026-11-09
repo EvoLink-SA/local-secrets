@@ -125,10 +125,10 @@ static partial class Vault
     static byte[] Entropy(string name) => Encoding.UTF8.GetBytes("local-secrets/v1:" + name);
 
     public static string Encrypt(string name, string value) =>
-        Convert.ToBase64String(Native.Protect(Encoding.UTF8.GetBytes(value), Entropy(name)));
+        Convert.ToBase64String(Platform.Current.Protect(Encoding.UTF8.GetBytes(value), Entropy(name)));
 
     public static string Decrypt(string name, SecretEntry entry) =>
-        Encoding.UTF8.GetString(Native.Unprotect(Convert.FromBase64String(entry.Data), Entropy(name)));
+        Encoding.UTF8.GetString(Platform.Current.Unprotect(Convert.FromBase64String(entry.Data), Entropy(name)));
 
     public static string? TryGet(VaultData d, string name)
     {
@@ -198,7 +198,7 @@ static partial class Vault
     }
 
     public static string? FindNamespace(VaultData d, string fullPath) =>
-        d.Namespaces.FirstOrDefault(kv => string.Equals(Paths.Normalize(kv.Value.Path), Paths.Normalize(fullPath), StringComparison.OrdinalIgnoreCase)).Key;
+        d.Namespaces.FirstOrDefault(kv => string.Equals(Paths.Normalize(kv.Value.Path), Paths.Normalize(fullPath), Paths.Comparison)).Key;
 
     // Un espace de noms par fichier .env : deux fichiers ne s'écrasent jamais leurs valeurs.
     public static string NamespaceForFile(VaultData d, string fullPath, string? preferred)
@@ -252,14 +252,14 @@ static partial class Vault
         {
             Path = fullPath,
             Created = DateTime.Now,
-            Data = Convert.ToBase64String(Native.Protect(original, Entropy("backup"))),
+            Data = Convert.ToBase64String(Platform.Current.Protect(original, Entropy("backup"))),
         };
         var file = Path.Combine(BackupDir, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Guid.NewGuid().ToString("N")[..8]}.json");
         File.WriteAllText(file, JsonSerializer.Serialize(record, JsonContext.Default.EnvBackup), new UTF8Encoding(false));
 
         // On garde les 10 dernières sauvegardes de chaque fichier.
         foreach (var old in ListBackups()
-                     .Where(b => string.Equals(b.Record.Path, fullPath, StringComparison.OrdinalIgnoreCase))
+                     .Where(b => string.Equals(b.Record.Path, fullPath, Paths.Comparison))
                      .OrderByDescending(b => b.Record.Created)
                      .Skip(10))
             File.Delete(old.File);
@@ -284,5 +284,5 @@ static partial class Vault
         return list;
     }
 
-    public static byte[] RestoreBackup(EnvBackup b) => Native.Unprotect(Convert.FromBase64String(b.Data), Entropy("backup"));
+    public static byte[] RestoreBackup(EnvBackup b) => Platform.Current.Unprotect(Convert.FromBase64String(b.Data), Entropy("backup"));
 }

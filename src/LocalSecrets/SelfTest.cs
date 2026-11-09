@@ -277,12 +277,22 @@ static class SelfTest
             try { Directory.Delete(scratch, recursive: true); } catch { }
         }
 
+        Console.WriteLine("Couche plateforme");
+        var platform = Platform.Current;
+        if (OperatingSystem.IsWindows())
+        {
+            Check(Paths.Full("/c/tools/projet/.env", @"D:\ailleurs") == @"C:\tools\projet\.env", "chemin Git Bash /c/... ramené à C:\\...");
+            Check(Paths.IsInProject(@"C:\TOOLS\Projet\sub\.env", @"C:\tools\projet"), "chemins comparés sans tenir compte de la casse");
+            Check(platform.ResolveCommand(@"C:\x\outil.cmd", ["a b"]) is { Raw: { } raw } && raw.Contains("\"a b\""), "script .cmd lancé par cmd, arguments entre guillemets");
+            Check(!Paths.Normalize(Path.GetTempPath()).Contains('~'), "noms courts 8.3 remplacés par les noms longs");
+        }
+
         Console.WriteLine("Chiffrement");
-        var blob = Native.Protect([1, 2, 3], [9]);
-        Check(Native.Unprotect(blob, [9]).SequenceEqual(new byte[] { 1, 2, 3 }), "DPAPI aller-retour");
+        var blob = platform.Protect([1, 2, 3], [9]);
+        Check(platform.Unprotect(blob, [9]).SequenceEqual(new byte[] { 1, 2, 3 }), $"{platform.ProtectionName} aller-retour");
         var tampered = false;
-        try { Native.Unprotect(blob, [8]); } catch { tampered = true; }
-        Check(tampered, "DPAPI refuse une autre entropie (blob déplacé sous un autre nom)");
+        try { platform.Unprotect(blob, [8]); } catch { tampered = true; }
+        Check(tampered, $"{platform.ProtectionName} refuse une autre entropie (blob déplacé sous un autre nom)");
         var payload = BackupCmd.EncryptPayload(Encoding.UTF8.GetBytes("{\"a\":1}"), "phrase de test assez longue");
         Check(Encoding.UTF8.GetString(BackupCmd.DecryptPayload(payload, "phrase de test assez longue")) == "{\"a\":1}", "sauvegarde : chiffrement et relecture");
         var wrong = false;

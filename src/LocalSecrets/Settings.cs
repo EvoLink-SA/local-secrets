@@ -76,7 +76,7 @@ sealed class Settings
         foreach (var p in roots)
         {
             var n = Path.TrimEndingDirectorySeparator(Paths.Normalize(p));
-            if (d.Equals(n, StringComparison.OrdinalIgnoreCase) || d.StartsWith(n + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (d.Equals(n, Paths.Comparison) || d.StartsWith(n + Path.DirectorySeparatorChar, Paths.Comparison))
                 return p;
         }
         return null;
