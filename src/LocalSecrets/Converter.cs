@@ -90,11 +90,16 @@ static class Converter
         EnvFile.WriteInPlace(full, env.Render(values, addHeader: true));
 
         // Vérification : mêmes clés dans le même ordre, et chaque valeur relisible dans le coffre.
+        // Coffre verrouillé (Linux) : on ne peut pas relire, on vérifie seulement que chaque entrée existe.
         var check = EnvFile.Load(full);
         var data = Vault.Load();
         var ok = check.Assignments.Select(a => a.Key).SequenceEqual(env.Assignments.Select(a => a.Key));
+        var canRead = Platform.Current.CanDecrypt;
         foreach (var (a, reference) in values)
-            if (Vault.TryGet(data, reference["secret://".Length..]) != a.Value) ok = false;
+        {
+            var name = reference["secret://".Length..];
+            if (canRead ? Vault.TryGet(data, name) != a.Value : !data.Secrets.ContainsKey(name)) ok = false;
+        }
         if (!ok)
         {
             EnvFile.WriteInPlace(full, env.OriginalBytes);

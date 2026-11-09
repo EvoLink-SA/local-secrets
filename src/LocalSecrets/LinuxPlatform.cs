@@ -15,6 +15,8 @@ sealed class LinuxPlatform : IPlatform
 
     public string InstallScript => "install.sh";
 
+    public string PluginName => "local-secrets-linux";
+
     public string ProtectionDescription => "clé de ce compte, déverrouillée par phrase de passe";
 
     public string ShellHints(string exe) =>
@@ -32,6 +34,8 @@ sealed class LinuxPlatform : IPlatform
     public byte[] Protect(byte[] data, byte[] entropy) => KeyStore.Protect(data, entropy);
 
     public byte[] Unprotect(byte[] data, byte[] entropy) => KeyStore.Unprotect(data, entropy);
+
+    public bool CanDecrypt => KeyStore.Exists && KeyStore.UnlockedFor() != null;
 
     // Verrou de fichier : FileShare.None pose un flock exclusif, respecté par tous les processus
     // de ce compte, quelle que soit leur session.

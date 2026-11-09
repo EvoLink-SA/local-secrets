@@ -18,6 +18,10 @@ interface IPlatform
     byte[] Protect(byte[] data, byte[] entropy);
     byte[] Unprotect(byte[] data, byte[] entropy);
 
+    // Faux quand le déchiffrement est impossible pour l'instant (coffre Linux verrouillé) :
+    // on peut toujours chiffrer, mais pas relire pour vérifier.
+    bool CanDecrypt { get; }
+
     // Verrou exclusif sur le coffre, partagé par tous les processus de ce compte (hooks de Claude,
     // terminal de l'utilisateur). Null si le délai est dépassé.
     IDisposable? LockVault(TimeSpan timeout);
@@ -55,9 +59,10 @@ interface IPlatform
     // Contrôles propres au système, pour « secret doctor » : (problème ?, message).
     IEnumerable<(bool Problem, string Message)> DoctorChecks();
 
-    // Nom de l'exécutable livré dans bin\ et du script d'installation.
+    // Nom de l'exécutable livré dans bin\, du script d'installation et du plugin Claude Code.
     string ExecutableName { get; }
     string InstallScript { get; }
+    string PluginName { get; }
 
     // Textes pour Claude et l'utilisateur : protection du coffre, appel de secret par son chemin
     // et pièges du shell, rappel de sauvegarde, agent ssh.

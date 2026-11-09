@@ -9,6 +9,11 @@ $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot 'src\LocalSecrets\LocalSecrets.csproj'
 $bin = Join-Path $PSScriptRoot 'plugins\local-secrets\bin'
 
+# Le skill est commun aux deux variantes du plugin : la source est celle de Windows.
+$skills = Join-Path $PSScriptRoot 'plugins\local-secrets-linux\skills'
+New-Item -ItemType Directory -Force $skills | Out-Null
+Copy-Item (Join-Path $PSScriptRoot 'plugins\local-secrets\skills\*') $skills -Recurse -Force
+
 if ($Linux) {
     # Image de compilation gardée en cache : SDK .NET 10, plus clang et zlib pour Native AOT.
     $image = 'local-secrets-build:10.0'

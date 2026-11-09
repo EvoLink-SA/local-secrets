@@ -3,7 +3,8 @@
 Les identifiants d'un projet (mots de passe, clés d'API, SSH, comptes Windows) restent dans ton
 `.env` comme d'habitude, mais plus jamais en clair sur le disque, et jamais transmis à l'IA ni
 écrits dans un transcript. Claude Code s'en sert sans voir les valeurs, et toi tu continues à
-travailler comme avant. Tout est local : chiffrement DPAPI de Windows, aucun service cloud.
+travailler comme avant. Tout est local, aucun service cloud : chiffrement DPAPI sous Windows,
+clé du compte déverrouillée par phrase de passe sous Linux et WSL (voir [Linux et WSL](#linux-et-wsl)).
 
 ## Le principe en une image
 
@@ -41,6 +42,50 @@ Le script, sans droits administrateur :
 5. lance `secret doctor`.
 
 Relance ensuite tes terminaux, Claude Code et Claude Desktop.
+
+## Linux et WSL
+
+Prérequis : Linux x86_64 (poste, serveur ou WSL 2), bash ou zsh, OpenSSL (présent sur les
+distributions courantes), Claude Code installé côté Linux. Le binaire `secret` est livré compilé.
+
+```bash
+git clone https://github.com/EvoLink-SA/local-secrets.git
+cd local-secrets
+./install.sh
+```
+
+Le script, sans droits root :
+1. lance les tests internes de `secret` ;
+2. crée le lien `~/.local/bin/secret` ;
+3. ajoute une ligne à `~/.bashrc` (et `~/.zshrc` s'il existe) pour le chargement automatique ;
+4. déclare la marketplace locale et installe le plugin `local-secrets-linux` dans Claude Code ;
+5. crée la clé du coffre (`secret init`, phrase de passe de 12 caractères minimum) ;
+6. lance `secret doctor`.
+
+**Ce qui change par rapport à Windows.** Il n'y a pas de DPAPI : chaque valeur est chiffrée avec
+la clé publique d'une paire propre à ton compte (ECDH P-256, AES-256-GCM). La clé privée est
+rangée dans `~/.local-secrets/key.json`, chiffrée par ta phrase de passe. Pour l'utiliser :
+
+```bash
+secret unlock            # une fois après chaque démarrage, valable 12 h par défaut
+secret unlock --for 8h   # ou 30m, 2d (7 jours au plus)
+secret lock              # reverrouille tout de suite
+secret passwd            # change la phrase de passe
+```
+
+Déverrouillée, la clé privée reste en mémoire dans le trousseau noyau de ton compte, jamais en
+clair sur le disque ; elle disparaît au redémarrage ou à la fin de la durée choisie. Coffre
+verrouillé, les `.env` sont quand même convertis (seule la clé publique sert à chiffrer), mais
+`secret run` et le chargement du terminal demandent un `secret unlock`. Claude ne peut ni
+déverrouiller ni recevoir la phrase de passe : il te demande de le faire dans ton terminal.
+
+Dans le terminal, le chargement automatique fonctionne comme sous PowerShell ; après un
+`secret set` ou un `secret unlock`, recharge avec `local_secrets_reload`. Une clé dont le nom
+n'est pas un nom de variable shell (`3CX_PASSWORD`) n'est pas chargée : passe par `secret run`.
+Pas encore de fenêtre à part pour `secret show` : lance-le toi-même dans ton terminal.
+
+**Passer un coffre de Windows à Linux** : `secret backup` sous Windows, copie le fichier, puis
+`secret restore` sous Linux. Un `vault.json` copié tel quel est refusé, avec la marche à suivre.
 
 ## Au quotidien
 
@@ -328,7 +373,11 @@ Pas protégé :
 - **un contournement délibéré** : Claude Code n'a pas de sandbox sous Windows. Les hooks évitent
   les accidents, ce n'est pas une cage ;
 - **les traces de l'ancien fichier sur le disque** : le contenu en clair est écrasé avant
-  réécriture, mais un SSD peut garder des copies. Active BitLocker.
+  réécriture, mais un SSD peut garder des copies. Active BitLocker (ou LUKS sous Linux).
+
+Sous Linux, l'environnement d'un programme lancé par `secret run` est lisible par ton compte
+(`/proc/PID/environ`, `ps e`) : les hooks refusent ces lectures à Claude, comme celle du
+trousseau qui garde la clé déverrouillée. Le coffre est en 700 et ses fichiers en 600.
 
 ## Sauvegarde et changement de PC
 
@@ -343,7 +392,8 @@ secret restore D:\coffre.lsbackup     # sur la nouvelle machine
 Sans sauvegarde depuis 30 jours, Claude Code te le rappelle au démarrage d'une session, une fois
 par semaine au plus, et `secret doctor` le signale. Range le fichier hors du PC (clé USB, NAS) et
 la phrase de passe à part : la perte du profil Windows ou une réinitialisation du mot de passe par
-un administrateur rend le coffre illisible.
+un administrateur rend le coffre illisible. Sous Linux, c'est l'oubli de la phrase de passe qui
+le rend illisible. La même sauvegarde se restaure sur l'un ou l'autre système.
 
 ## Où sont les fichiers
 
@@ -376,9 +426,15 @@ l'entrée du PATH. Le coffre (`%USERPROFILE%\.local-secrets`) reste en place : f
 
 ```powershell
 .\build.ps1                 # compile en natif (Native AOT) et lance secret selftest
+.\build.ps1 -Linux          # compile le binaire linux-x64 dans Docker (SDK .NET 10 + clang)
 .\tests\e2e.ps1             # tests de bout en bout : CLI, hooks, terminal, fenêtre, WSL
+wsl bash tests/e2e.sh       # tests de bout en bout Linux : clé, verrouillage, terminal bash, hooks
 claude --plugin-dir .\plugins\local-secrets    # essayer le plugin sans l'installer
 ```
+
+Les deux variantes du plugin partagent le code et le skill : `build.ps1` recopie
+`plugins\local-secrets\skills` dans `plugins\local-secrets-linux`. Les tests du trousseau noyau
+se lancent dans WSL, pas dans Docker, dont le profil seccomp par défaut bloque ces appels.
 
 La compilation native demande le SDK .NET 10 et les outils C++ de Visual Studio (charge
 « Développement Desktop en C++ »). Sans eux, `.\build.ps1 -FrameworkDependent` produit un exe qui

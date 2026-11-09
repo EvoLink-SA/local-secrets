@@ -1,13 +1,14 @@
 ---
 name: secrets
-description: Mode d'emploi des secrets locaux (plugin local-secrets, commande secret, coffre DPAPI Windows). À utiliser dès qu'une tâche a besoin d'un mot de passe, d'une clé d'API, d'un jeton, d'identifiants SSH, Windows, base de données ou SMTP, dès qu'un fichier .env contient des références secret://, dès qu'une sortie affiche [secret:...], quand une commande docker compose, ssh, curl, psql ou PowerShell doit s'authentifier, ou quand l'utilisateur parle de secrets, de coffre, de .env, de chiffrement local ou de « secret run ». Explique comment utiliser les valeurs sans jamais les voir ni les afficher.
+description: Mode d'emploi des secrets locaux (plugin local-secrets, commande secret, coffre local chiffré, DPAPI sous Windows, clé à phrase de passe sous Linux et WSL). À utiliser dès qu'une tâche a besoin d'un mot de passe, d'une clé d'API, d'un jeton, d'identifiants SSH, Windows, base de données ou SMTP, dès qu'un fichier .env contient des références secret://, dès qu'une sortie affiche [secret:...], quand une commande docker compose, ssh, curl, psql ou PowerShell doit s'authentifier, ou quand l'utilisateur parle de secrets, de coffre, de .env, de chiffrement local ou de « secret run ». Explique comment utiliser les valeurs sans jamais les voir ni les afficher.
 ---
 
 # Secrets locaux : les utiliser sans les voir
 
-Sur ce poste, les valeurs sensibles des fichiers `.env` sont chiffrées dans un coffre local
-(DPAPI Windows, lié au compte de l'utilisateur). Dans les fichiers, elles sont remplacées par
-des références :
+Sur ce poste, les valeurs sensibles des fichiers `.env` sont chiffrées dans un coffre local, lié
+au compte de l'utilisateur : DPAPI sous Windows ; sous Linux et WSL, une clé du compte que
+l'utilisateur déverrouille par phrase de passe (`secret unlock`). Dans les fichiers, elles sont
+remplacées par des références :
 
 ```
 SERVER_IP=192.168.10.25
@@ -99,6 +100,11 @@ secret run -- pwsh -NoProfile -Command 'Invoke-RestMethod https://api.example.co
   pas Git Bash. `secret run -- bash ...` ou `secret run -- wsl ...` transmet bien les variables à WSL.
   Mais un `bash` WSL lancé autrement ne les reçoit pas : la valeur y arrive **vide, sans erreur**.
   Pour du shell depuis l'outil PowerShell, préfère `pwsh -NoProfile -Command '...'`.
+- **Linux et WSL (Claude Code lancé sous Linux)** : `secret` est dans `~/.local/bin`. Pas de
+  conversion de chemins, `secret run -- sh -c '...'` fonctionne directement. Si une commande échoue
+  avec « coffre verrouillé », c'est à l'utilisateur de lancer `secret unlock` dans son terminal :
+  tu ne peux pas le faire, et il ne doit jamais te donner sa phrase de passe. La conversion des
+  `.env` fonctionne même coffre verrouillé.
 
 ## Recettes
 
@@ -119,7 +125,7 @@ secret run -s monprojet/POSTGRES_PASSWORD=PGPASSWORD -- psql -h db.local -U appu
 secret run -s monprojet/DB_PASSWORD=MYSQL_PWD -- mysql -h db.local -u app -e "select 1"
 ```
 
-**SSH par clé** : l'utilisateur ajoute sa clé une fois à l'agent ssh de Windows (`ssh-add`),
+**SSH par clé** : l'utilisateur ajoute sa clé une fois à l'agent ssh (`ssh-add`, celui de Windows ou `ssh-agent` sous Linux),
 ensuite `ssh` fonctionne directement. Tu ne lis jamais un fichier de clé privée (le hook bloque).
 
 **SSH par mot de passe** (validé avec le ssh de Windows et celui de Git Bash, sans terminal) :
@@ -169,18 +175,25 @@ S'il veut voir des valeurs (pour les recopier dans une interface web, par exempl
 `secret show` (le `.env` du dossier), `secret show FICHIER` ou `secret show NOM`. Une fenêtre à part
 s'ouvre sur son écran ; il confirme, il voit les valeurs, l'écran est effacé à la fermeture. Toi, tu ne
 reçois qu'un accusé de réception. Pendant l'affichage et dix minutes après, les captures d'écran et la
-lecture du presse-papiers te sont refusées : n'insiste pas.
+lecture du presse-papiers te sont refusées : n'insiste pas. Sous Linux, il n'y a pas encore de fenêtre
+à part : demande à l'utilisateur de lancer lui-même `secret show` dans son terminal.
 
 ## Quand c'est l'utilisateur qui lance
 
 Après conversion, tout ce qui lit le `.env` directement reçoit les références `secret://` au lieu
 des valeurs. C'est la première source d'ennuis. Donc :
 
-- **Son terminal PowerShell** charge tout seul les secrets du projet quand il entre dans le dossier
-  (si l'intégration est installée : message « secret(s) chargé(s) »). Là, `docker compose up -d`,
-  `npm run dev` ou `code .` marchent sans préfixe. Après un `secret set`, il recharge avec
-  `Update-LocalSecrets -Force`. Si Claude Code a été lancé depuis ce terminal, tes commandes reçoivent
-  aussi les valeurs (le contexte de démarrage te le dit), et leurs sorties restent masquées.
+- **Son terminal** (PowerShell sous Windows, bash ou zsh sous Linux) charge tout seul les secrets du
+  projet quand il entre dans le dossier (si l'intégration est installée : message « secret(s)
+  chargé(s) »). Là, `docker compose up -d`, `npm run dev` ou `code .` marchent sans préfixe. Après un
+  `secret set` ou un `secret unlock`, il recharge avec `Update-LocalSecrets -Force` (PowerShell) ou
+  `local_secrets_reload` (bash, zsh). Sous bash et zsh, une clé dont le nom n'est pas un nom de
+  variable shell (`3CX_PASSWORD`) n'est pas chargée : passe par `secret run`. Si Claude Code a été
+  lancé depuis ce terminal, tes commandes reçoivent aussi les valeurs (le contexte de démarrage te
+  le dit), et leurs sorties restent masquées.
+- **Coffre verrouillé (Linux)** : après un redémarrage, ou une fois la durée choisie écoulée, les
+  valeurs ne se déchiffrent plus jusqu'au prochain `secret unlock` de l'utilisateur. Dis-le-lui en
+  une phrase au lieu de chercher un contournement.
 - **Ailleurs** (autre shell, Docker Desktop, bouton « Run » d'un IDE lancé hors de ce terminal),
   toute commande que tu lui donnes passe par `secret run --`, par exemple
   `secret run -- docker compose up -d`. Dans le doute, donne la version avec `secret run`.
@@ -191,7 +204,8 @@ des valeurs. C'est la première source d'ennuis. Donc :
   Signale-le, et propose une variable d'environnement ou un lancement via `secret run`.
 - **Tâche planifiée, service Windows** : le coffre ne se déchiffre que sous le compte de
   l'utilisateur. Une tâche qui tourne en SYSTEM ou sous un compte de service échouera. Elle doit
-  tourner sous son compte et appeler `secret run`.
+  tourner sous son compte et appeler `secret run`. Sous Linux, une tâche cron du même compte
+  fonctionne tant que le coffre est déverrouillé, et échoue après un redémarrage.
 - **Projet copié sur un autre poste, partagé ou cloné** : les références voyagent, pas les valeurs.
   L'autre poste a besoin d'une restauration (`secret restore`) ou de ses propres valeurs.
 - **Conversion** : quand un `.env` vient d'être converti (message « a protégé ces fichiers »),
@@ -241,14 +255,17 @@ des valeurs. C'est la première source d'ennuis. Donc :
 ## Ce que tu ne fais jamais
 
 - Afficher une valeur : pas de `echo`, `printenv`, `Get-ChildItem env:`, `docker compose config`
-  hors `secret run`, pas de lecture du coffre ni de déchiffrement DPAPI à la main.
+  hors `secret run`, pas de lecture du coffre ni de déchiffrement DPAPI à la main. Sous Linux,
+  pas de lecture de `/proc/PID/environ`, de `ps e`, ni des trousseaux (`keyctl`, `secret-tool`) :
+  l'environnement des programmes lancés par `secret run` y est lisible (le hook refuse).
 - Lire un fichier d'identifiants : clé privée, `.pgpass`, `.netrc`, `.git-credentials`,
   `.aws\credentials` (le hook refuse). Les programmes qui en ont besoin les lisent eux-mêmes.
 - Écrire une valeur en clair dans un fichier qui n'est pas un `.env` (config, script, YAML).
   Préfère une variable d'environnement lue au lancement. Si un fichier doit vraiment contenir
   la valeur, demande d'abord à l'utilisateur.
 - Lancer `secret reveal`, `secret shell`, `secret env`, `secret unprotect`, `secret undo`,
-  `secret rm`, `secret backup`, `secret restore`, `secret config masking off`,
+  `secret rm`, `secret backup`, `secret restore`, `secret init`, `secret unlock`, `secret passwd`,
+  `secret config masking off`,
   `secret config convert off` ou `secret config allow` : ces commandes sont réservées à
   l'utilisateur, dans son terminal, et refusées quand c'est toi qui les lances. Pour lui montrer
   des valeurs, c'est `secret show`.
@@ -265,7 +282,9 @@ des valeurs. C'est la première source d'ennuis. Donc :
   poste, par exemple). L'utilisateur le recrée avec `secret set espace/CLÉ` ou restaure une sauvegarde.
 - Une valeur a été chiffrée alors qu'elle devait rester lisible (une URL, un nom) : l'utilisateur
   lance `secret unprotect FICHIER CLÉ` dans son terminal, elle sera marquée `# @public`.
-- « secret.exe introuvable » au démarrage, ou lecture de `.env` refusée « par sécurité » : le
+- « secret introuvable » au démarrage, ou lecture de `.env` refusée « par sécurité » : le
   plugin est cassé ou en cours de mise à jour. Toute lecture de `.env` est bloquée, le reste
-  fonctionne. Propose à l'utilisateur de relancer `install.ps1` puis Claude Code.
+  fonctionne. Propose à l'utilisateur de relancer `install.ps1` (Windows) ou `install.sh`
+  (Linux), puis Claude Code.
+- « aucune clé de coffre » (Linux) : l'utilisateur lance `secret init` dans son terminal.
 - Vérifier l'installation : `secret doctor`.

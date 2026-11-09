@@ -85,8 +85,9 @@ echo 'Verrouillage'
 out=$("$exe" run -- true 2>&1)
 check '[ $? -ne 0 ] && printf "%s" "$out" | grep -q "coffre verrouillé"' 'run : refusé coffre verrouillé, avec la marche à suivre'
 printf 'NEW_TOKEN=%s\n' "$token" > sub/.env
-"$exe" import sub > /dev/null
-check 'grep -q "^NEW_TOKEN=secret://" sub/.env && ! grep -qF "$token" sub/.env' 'import : conversion possible coffre verrouillé (clé publique)'
+err=$("$exe" import sub 2>&1 > /dev/null)
+rc=$?
+check '[ $rc -eq 0 ] && [ -z "$err" ] && grep -q "^NEW_TOKEN=secret://" sub/.env && ! grep -qF "$token" sub/.env' 'import : conversion sans erreur coffre verrouillé (clé publique)'
 out=$(printf '%s\n' "mauvaise phrase de passe" | "$exe" unlock --stdin 2>&1)
 check '[ $? -ne 0 ]' 'unlock : mauvaise phrase refusée'
 printf '%s\n' "$pass" | "$exe" unlock --stdin --for 5m > /dev/null
@@ -103,6 +104,26 @@ echo 'Verrou du coffre'
 for i in 1 2 3 4 5 6; do printf 'Parallele-%s-xY9!' "$i" | "$exe" set "par/K$i" > /dev/null & done
 wait
 check '[ "$("$exe" list --ns par | grep -c "^par/K")" -eq 6 ]' 'six écritures parallèles : aucune perdue'
+
+echo 'Terminal (bash)'
+# Vrai terminal (script alloue un pseudo-terminal) : secret env refuse une entrée redirigée.
+# Le résultat ne contient que des booléens, jamais de valeur.
+cat > "$root/term.sh" <<EOF
+export PATH="$work:\$PATH"
+export SSH_PASS=avant
+cd "$root"
+. "$here/../shell/local-secrets.sh"
+cd "$proj"; _local_secrets_update
+r1=non; [ "\$POSTGRES_PASSWORD" = "\$E2E_PG" ] && r1=oui
+r2=non; [ "\$SSH_PASS" = "\$E2E_SSH" ] && r2=oui
+cd /; _local_secrets_update
+r3=non; [ -z "\${POSTGRES_PASSWORD+x}" ] && [ "\$SSH_PASS" = avant ] && r3=oui
+echo "charge=\$r1 remplace=\$r2 retabli=\$r3" > "$root/term.result"
+EOF
+E2E_PG=$pg E2E_SSH=$ssh script -qec "bash --norc $root/term.sh" /dev/null > /dev/null 2>&1
+check 'grep -q "charge=oui" "$root/term.result"' 'chargement auto : secrets du projet chargés en entrant'
+check 'grep -q "remplace=oui" "$root/term.result"' 'chargement auto : variable existante remplacée'
+check 'grep -q "retabli=oui" "$root/term.result"' 'chargement auto : retirés en sortant, valeur d avant rétablie'
 
 echo 'Hooks'
 printf 'HOOK_PASSWORD=%s\n' "$ssh" > sub/hook.env
@@ -123,6 +144,22 @@ second=$(hook post-tool-use "$payload")
 check 'printf "%s" "$first" | grep -q "illisible" && [ -z "$second" ]' 'coffre verrouillé : signalé une fois par session'
 out=$(hook pre-tool-use "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$proj/.env\"},\"cwd\":\"$proj\",\"session_id\":\"e2e\"}")
 check '[ -z "$out" ]' 'Read d un .env déjà protégé, coffre verrouillé : rien à signaler'
+printf 'LOCKED_PASSWORD=%s\n' "$pg" > sub/locked.env
+out=$(hook pre-tool-use "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$proj/sub/locked.env\"},\"cwd\":\"$proj\",\"session_id\":\"e2e\"}")
+check 'grep -q "^LOCKED_PASSWORD=secret://" sub/locked.env && ! printf "%s" "$out" | grep -q deny' 'Read d un .env en clair, coffre verrouillé : converti, pas de refus'
+
+echo 'Lanceur des hooks'
+cp "$here/../plugins/local-secrets-linux/bin/hook.sh" "$work/hook.sh"
+out=$(printf '{"tool_name":"Bash","tool_input":{"command":"cat /proc/1/environ"},"cwd":"/"}' | sh "$work/hook.sh" pre-tool-use)
+check 'printf "%s" "$out" | grep -q "\"permissionDecision\":\"deny\""' 'hook.sh : transmet au binaire'
+mkdir -p "$root/casse"
+cp "$work/hook.sh" "$root/casse/hook.sh"
+printf '{"tool_input":{"file_path":"/x/.env"}}' | sh "$root/casse/hook.sh" pre-tool-use 2> /dev/null
+check '[ $? -eq 2 ]' 'hook.sh sans binaire : accès à un .env bloqué'
+printf '{"tool_input":{"command":"ls"}}' | sh "$root/casse/hook.sh" pre-tool-use 2> /dev/null
+check '[ $? -eq 0 ]' 'hook.sh sans binaire : le reste passe'
+out=$(sh "$root/casse/hook.sh" session-start < /dev/null)
+check 'printf "%s" "$out" | grep -q systemMessage' 'hook.sh sans binaire : avertissement au démarrage'
 
 echo 'Protection du coffre'
 other="$root/autre"

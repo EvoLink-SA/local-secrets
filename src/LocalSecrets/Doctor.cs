@@ -52,7 +52,7 @@ static class Doctor
         var mine = Commands.Version;
         if (PluginExe() is { } plugin)
         {
-            var theirs = FileVersionInfo.GetVersionInfo(plugin).ProductVersion?.Split('+')[0] ?? "?";
+            var theirs = FileVersionInfo.GetVersionInfo(plugin).ProductVersion?.Split('+')[0] ?? AskVersion(plugin) ?? "?";
             if (theirs == mine) Ok($"hooks de Claude à la même version ({theirs})");
             else Bad($"hooks de Claude en {theirs}, cette commande en {mine} : relance {platform.InstallScript}, puis redémarre Claude");
         }
@@ -62,10 +62,11 @@ static class Doctor
         else Bad($"« secret » absent du PATH de ce terminal : lance {platform.InstallScript}");
 
         var installed = Path.Combine(Paths.UserProfile, ".claude", "plugins", "installed_plugins.json");
-        if (File.Exists(installed) && File.ReadAllText(installed).Contains("local-secrets", StringComparison.OrdinalIgnoreCase))
+        var pluginId = $"{platform.PluginName}@local-secrets";
+        if (File.Exists(installed) && File.ReadAllText(installed).Contains(pluginId, StringComparison.OrdinalIgnoreCase))
             Ok("plugin Claude Code installé");
         else
-            Bad("plugin Claude Code non détecté : claude plugin install local-secrets@local-secrets");
+            Bad($"plugin Claude Code non détecté : claude plugin install {pluginId}");
 
         foreach (var (problem, message) in platform.DoctorChecks())
             if (problem) Bad(message);
@@ -83,10 +84,26 @@ static class Doctor
         catch { return true; }
     }
 
+    // Binaire sans ressource de version (Linux) : on lui demande « secret version ».
+    static string? AskVersion(string exe)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo(exe, "version") { RedirectStandardOutput = true, UseShellExecute = false })!;
+            var text = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit(5000);
+            return text.Length > 0 ? text.Split(' ')[^1] : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // L'exe de la version installée du plugin la plus récente, dans le cache de Claude Code.
     static string? PluginExe()
     {
-        var cache = Path.Combine(Paths.UserProfile, ".claude", "plugins", "cache", "local-secrets", "local-secrets");
+        var cache = Path.Combine(Paths.UserProfile, ".claude", "plugins", "cache", "local-secrets", Platform.Current.PluginName);
         if (!Directory.Exists(cache)) return null;
         var exe = Platform.Current.ExecutableName;
         return Directory.EnumerateDirectories(cache)

@@ -14,6 +14,8 @@ sealed partial class WindowsPlatform : IPlatform
 
     public string InstallScript => "install.ps1";
 
+    public string PluginName => "local-secrets";
+
     public string ProtectionDescription => "DPAPI Windows";
 
     public string ShellHints(string exe) =>
@@ -31,6 +33,8 @@ sealed partial class WindowsPlatform : IPlatform
     public byte[] Protect(byte[] data, byte[] entropy) => Native.Protect(data, entropy);
 
     public byte[] Unprotect(byte[] data, byte[] entropy) => Native.Unprotect(data, entropy);
+
+    public bool CanDecrypt => true;
 
     // Mutex nommé de la session : sous Windows, il est commun à tous les processus de l'utilisateur.
     public IDisposable? LockVault(TimeSpan timeout)
