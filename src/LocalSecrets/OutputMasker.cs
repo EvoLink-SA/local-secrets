@@ -35,6 +35,9 @@ static partial class OutputMasker
         var key = m.Groups["k"].Value;
         var value = m.Groups["v"].Value.Trim().Trim('"', '\'').Replace("\\\"", "\"").Replace("\\\\", "\\");
         if (neverMask.Contains(key, StringComparer.OrdinalIgnoreCase)) return m.Value;
+        // « local-secrets : ... » est le préfixe des messages de l'outil, et « # local-secrets: ignore »
+        // son marqueur : le mot « secret » du nom ne fait pas de la suite une valeur à cacher.
+        if (key.StartsWith("local-secrets", StringComparison.OrdinalIgnoreCase)) return m.Value;
         if (!Classifier.IsSecretPair(key, value, valueMustLookSecret: tableRow)) return m.Value;
         return Swap(m, Hit(hits, key));
     }

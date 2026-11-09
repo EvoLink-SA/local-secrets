@@ -12,7 +12,7 @@ static class KeyCmd
     {
         "init" => Init(args),
         "unlock" => Unlock(args),
-        "lock" => Lock(),
+        "lock" => Lock(args),
         _ => Passwd(args),
     };
 
@@ -24,7 +24,7 @@ static class KeyCmd
         KeyStore.Init(pass);
         Console.WriteLine($"Clé du coffre créée : {KeyStore.FilePath}.");
         Console.WriteLine("Garde la phrase de passe à part : sans elle, les secrets de ce compte sont illisibles.");
-        if (!args.Contains("--no-unlock")) Unlock(pass, Lifetime(args));
+        if (!args.Contains("--no-unlock")) Unlock(pass, args);
         return 0;
     }
 
@@ -32,14 +32,22 @@ static class KeyCmd
     {
         Require("secret unlock");
         if (!KeyStore.Exists) throw new UserError(KeyStore.NoKey);
-        Unlock(Passphrase(args, "Phrase de passe du coffre : "), Lifetime(args));
+        Unlock(Passphrase(args, "Phrase de passe du coffre : "), args);
         return 0;
     }
 
-    static int Lock()
+    // --forget : retire aussi la copie confiée au gardien de session (le coffre ne se rouvrira plus seul).
+    static int Lock(string[] args)
     {
         KeyStore.Lock();
-        Console.WriteLine("Coffre verrouillé : « secret unlock » pour utiliser de nouveau les valeurs.");
+        if (args.Contains("--forget") && KeyStore.RememberedBy is { } method)
+        {
+            SessionKeeper.Forget();
+            Console.WriteLine($"Copie de la clé retirée : {SessionKeeper.Describe(method)}.");
+        }
+        Console.WriteLine(KeyStore.RememberedBy is { } kept
+            ? $"Coffre verrouillé. Il ne se rouvrira pas seul avant ton prochain « secret unlock » (clé gardée par : {SessionKeeper.Describe(kept)})."
+            : "Coffre verrouillé : « secret unlock » pour utiliser de nouveau les valeurs.");
         return 0;
     }
 
@@ -53,10 +61,25 @@ static class KeyCmd
         return 0;
     }
 
-    static void Unlock(string pass, TimeSpan lifetime)
+    // --remember : une copie de la clé est confiée au gardien de session (DPAPI sous WSL, trousseau de
+    // session sur un bureau), et le coffre se rouvre ensuite tout seul, sans phrase de passe.
+    static void Unlock(string pass, string[] args)
     {
-        KeyStore.Unlock(pass, lifetime);
+        var lifetime = Lifetime(args);
+        var pkcs8 = KeyStore.OpenPrivate(pass);
+        try
+        {
+            KeyStore.Open(pkcs8, lifetime);
+            if (args.Contains("--remember")) SessionKeeper.Remember(pkcs8);
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(pkcs8);
+        }
         Console.WriteLine($"Coffre déverrouillé pour {Describe(lifetime)} (jusqu'au redémarrage au plus). « secret lock » pour le refermer avant.");
+        if (KeyStore.RememberedBy is { } method)
+            Console.WriteLine($"Clé mémorisée par : {SessionKeeper.Describe(method)}. Le coffre se rouvrira seul, sans phrase de passe " +
+                              "(« secret lock --forget » pour l'oublier).");
     }
 
     // Réservé à l'utilisateur ; --stdin permet l'automatisation (tests, scripts), jamais depuis Claude.

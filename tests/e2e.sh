@@ -105,6 +105,32 @@ for i in 1 2 3 4 5 6; do printf 'Parallele-%s-xY9!' "$i" | "$exe" set "par/K$i" 
 wait
 check '[ "$("$exe" list --ns par | grep -c "^par/K")" -eq 6 ]' 'six écritures parallèles : aucune perdue'
 
+winexe="$here/../plugins/local-secrets/bin/secret.exe"
+if [ -e /proc/sys/fs/binfmt_misc/WSLInterop ] && [ -f "$winexe" ]; then
+    echo 'Pont DPAPI (WSL)'
+    export LOCAL_SECRETS_WINDOWS_EXE="$winexe"
+    out=$(printf '%s\n' "nouvelle phrase de passe e2e" | "$exe" unlock --stdin --remember 2>&1)
+    check 'printf "%s" "$out" | grep -q "DPAPI de Windows" && grep -q "wsl-dpapi" "$LOCAL_SECRETS_HOME/key.json"' 'unlock --remember : clé confiée à la DPAPI de Windows'
+    "$exe" lock > /dev/null
+    out=$("$exe" run -- true 2>&1)
+    check '[ $? -ne 0 ]' 'lock : pas de réouverture automatique après un verrouillage volontaire'
+    rm -f "$LOCAL_SECRETS_HOME/locked"   # comme après un redémarrage : trousseau vide, pas de verrouillage volontaire
+    "$exe" run -- sh -c '[ "$POSTGRES_PASSWORD" = "'"$pg"'" ]'
+    check '[ $? -eq 0 ]' 'réouverture automatique par le pont, sans phrase de passe'
+    out=$("$exe" doctor 2>&1)
+    check 'printf "%s" "$out" | grep -q "clé mémorisée par : DPAPI de Windows"' 'doctor : clé mémorisée signalée'
+    out=$(printf '{"blob":"AAAA","point":"AAAA"}' | "$winexe" wsl-key unwrap 2>&1)
+    check '[ $? -ne 0 ]' 'wsl-key : blob étranger refusé'
+    out=$(hook pre-tool-use "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$winexe wsl-key unwrap\"},\"cwd\":\"$proj\",\"session_id\":\"e2e\"}")
+    check 'printf "%s" "$out" | grep -q "\"permissionDecision\":\"deny\""' 'Bash secret.exe wsl-key : refusé'
+    "$exe" lock --forget > /dev/null
+    rm -f "$LOCAL_SECRETS_HOME/locked"
+    out=$("$exe" run -- true 2>&1)
+    check '[ $? -ne 0 ] && ! grep -q "wsl-dpapi" "$LOCAL_SECRETS_HOME/key.json"' 'lock --forget : copie oubliée, plus de réouverture automatique'
+    printf '%s\n' "nouvelle phrase de passe e2e" | "$exe" unlock --stdin > /dev/null
+    unset LOCAL_SECRETS_WINDOWS_EXE
+fi
+
 echo 'Terminal (bash)'
 # Vrai terminal (script alloue un pseudo-terminal) : secret env refuse une entrée redirigée.
 # Le résultat ne contient que des booléens, jamais de valeur.

@@ -104,7 +104,8 @@ secret run -- pwsh -NoProfile -Command 'Invoke-RestMethod https://api.example.co
   conversion de chemins, `secret run -- sh -c '...'` fonctionne directement. Si une commande échoue
   avec « coffre verrouillé », c'est à l'utilisateur de lancer `secret unlock` dans son terminal :
   tu ne peux pas le faire, et il ne doit jamais te donner sa phrase de passe. La conversion des
-  `.env` fonctionne même coffre verrouillé.
+  `.env` fonctionne même coffre verrouillé. Avec `secret unlock --remember`, la clé est confiée à la
+  DPAPI de Windows (WSL) ou au trousseau de session (bureau), et le coffre se rouvre ensuite seul.
 
 ## Recettes
 
@@ -175,9 +176,10 @@ S'il veut voir des valeurs (pour les recopier dans une interface web, par exempl
 `secret show` (le `.env` du dossier), `secret show FICHIER` ou `secret show NOM`. Une fenêtre à part
 s'ouvre sur son écran ; il confirme, il voit les valeurs, l'écran est effacé à la fermeture. Toi, tu ne
 reçois qu'un accusé de réception. Pendant l'affichage et dix minutes après, les captures d'écran et la
-lecture du presse-papiers te sont refusées : n'insiste pas. Sous Linux, il n'y a pas encore de fenêtre
-à part : ne lance pas `secret show` toi-même, demande à l'utilisateur de le taper dans un autre
-terminal (pas avec le préfixe `!`, dont la sortie te reviendrait).
+lecture du presse-papiers te sont refusées : n'insiste pas. Sous Linux, la fenêtre s'ouvre sous WSL
+(console Windows) et sur un bureau (terminal graphique). En SSH, sans écran, `secret show` te répond
+qu'il ne peut pas : demande alors à l'utilisateur de le taper dans un autre terminal (pas avec le
+préfixe `!`, dont la sortie te reviendrait).
 
 ## Quand c'est l'utilisateur qui lance
 

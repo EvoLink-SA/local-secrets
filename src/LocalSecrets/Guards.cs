@@ -10,7 +10,7 @@ static partial class Guards
         "Le coffre local-secrets ne se lit pas directement. Utilise « secret list » pour voir les noms " +
         "et « secret run -- <commande> » pour utiliser les valeurs.";
 
-    [GeneratedRegex(@"\bsecret(?:\.exe)?[""']?\s+(?<verb>reveal|undo|unprotect|backup|restore|rm|remove|shell|env|init|unlock|passwd)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\bsecret(?:\.exe)?[""']?\s+(?<verb>reveal|undo|unprotect|backup|restore|rm|remove|shell|env|init|unlock|passwd|wsl-key)\b", RegexOptions.IgnoreCase)]
     private static partial Regex ForbiddenVerbRx();
 
     [GeneratedRegex(@"local-secrets[\\/]+(vault\.json|backups|config\.json|key\.json)", RegexOptions.IgnoreCase)]
@@ -38,6 +38,9 @@ static partial class Guards
 
     [GeneratedRegex(@"\bsecret(?:\.exe)?[""']?\s+config\s+(?:masking\s+off|convert\s+off|allow)\b", RegexOptions.IgnoreCase)]
     private static partial Regex ConfigOffRx();
+
+    [GeneratedRegex(@"\bsecret(?:\.exe)?[""']?\s+show\b[^\n;&|]*--window\b", RegexOptions.IgnoreCase)]
+    private static partial Regex ShowWindowRx();
 
     // Lecture du presse-papiers ou capture d'écran depuis un shell.
     [GeneratedRegex(@"Get-Clipboard|Clipboard\]::Get|\.GetText\(\)|CopyFromScreen|pbpaste|xclip|xsel|PrintWindow|wl-paste|xdotool|\bscrot\b|\bgrim\b|\bmaim\b|gnome-screenshot|\bspectacle\b|flameshot|\bxwd\b|\bimport\s+-window", RegexOptions.IgnoreCase)]
@@ -96,6 +99,9 @@ static partial class Guards
             return $"« secret {verb} » est réservé à l'utilisateur, dans son propre terminal. " +
                    "Si c'est nécessaire, demande-lui de le lancer lui-même.";
         }
+        if (ShowWindowRx().IsMatch(text))
+            return "« secret show --window » est la fenêtre ouverte pour l'utilisateur : lance « secret show » sans option, " +
+                   "elle s'ouvre sur son écran et rien ne te revient.";
         if (ConfigOffRx().IsMatch(text))
             return "Couper le masquage ou autoriser une clé est réservé à l'utilisateur, dans son propre terminal.";
         if (VaultPathRx().IsMatch(text)) return VaultDenied;

@@ -293,11 +293,8 @@ static class Hooks
             "dossier courant sont injectées et leurs valeurs masquées dans la sortie. Dans un argument, écris secret://CLÉ, " +
             "secret run le remplace. Attention, $VAR entre guillemets doubles est développée trop tôt par ton shell. " +
             Platform.Current.ShellHints(Environment.ProcessPath ?? "secret") +
-            (OperatingSystem.IsWindows()
-                ? "Si l'utilisateur veut voir des valeurs, lance « secret show [FICHIER|NOM] » : elles s'affichent dans une fenêtre " +
-                  "à part sur son écran, jamais dans ta sortie. "
-                : "") +
-            "N'essaie jamais d'afficher une valeur toi-même. " +
+            "Si l'utilisateur veut voir des valeurs, lance « secret show [FICHIER|NOM] » : elles s'affichent dans une fenêtre " +
+            "à part sur son écran, jamais dans ta sortie. N'essaie jamais d'afficher une valeur toi-même. " +
             "Mode d'emploi complet : skill local-secrets:secrets.";
         var root = Path.Combine(dir, ".env");
         if (File.Exists(root) && Guards.AlreadyInjected(root))

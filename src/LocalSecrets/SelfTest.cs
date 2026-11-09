@@ -279,6 +279,12 @@ static class SelfTest
             try { Directory.Delete(scratch, recursive: true); } catch { }
         }
 
+        const string ownMessage = "local-secrets : coffre verrouillé, lance secret unlock\n# local-secrets: ignore\n";
+        Check(M(ownMessage) == ownMessage, "messages de l'outil et marqueur ignore : jamais masqués");
+        Check(Guards.CheckForbidden("secret show test/NOM --window") != null && Guards.CheckForbidden("secret show test/NOM") == null
+              && Guards.CheckForbidden("/mnt/c/x/secret.exe wsl-key unwrap") != null,
+              "secret show --window et secret.exe wsl-key refusés pour Claude ; secret show permis");
+
         Console.WriteLine("Couche plateforme");
         var platform = Platform.Current;
         if (OperatingSystem.IsWindows())
@@ -326,20 +332,22 @@ static class SelfTest
             try { platform.Unprotect(blob, [8]); } catch { tampered = true; }
             Check(tampered, $"{platform.ProtectionName} refuse une autre entropie (blob déplacé sous un autre nom)");
         }
-        else if (OperatingSystem.IsLinux())
         {
-            // Clé de test générée ici : le coffre réel et sa clé ne sont jamais touchés.
-            using var key = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
-            var blob = KeyStore.Encrypt(KeyStore.Point(key), [1, 2, 3], [9]);
-            Check(KeyStore.Decrypt(key, blob, [9]).SequenceEqual(new byte[] { 1, 2, 3 }), "ECIES P-256 aller-retour");
-            Check(!KeyStore.Encrypt(KeyStore.Point(key), [1, 2, 3], [9]).SequenceEqual(blob), "ECIES : deux chiffrements de la même valeur diffèrent");
+            // ECIES : coffre Linux et pont WSL (les deux côtés). Clé de test générée ici.
+            using var key = Ecies.NewKey();
+            var blob = Ecies.Encrypt(Ecies.Point(key), [1, 2, 3], [9]);
+            Check(Ecies.Decrypt(key, blob, [9]).SequenceEqual(new byte[] { 1, 2, 3 }), "ECIES P-256 aller-retour");
+            Check(!Ecies.Encrypt(Ecies.Point(key), [1, 2, 3], [9]).SequenceEqual(blob), "ECIES : deux chiffrements de la même valeur diffèrent");
             var tampered = false;
-            try { KeyStore.Decrypt(key, blob, [8]); } catch { tampered = true; }
+            try { Ecies.Decrypt(key, blob, [8]); } catch { tampered = true; }
             Check(tampered, "ECIES refuse une autre entropie (blob déplacé sous un autre nom)");
-            using var other = System.Security.Cryptography.ECDiffieHellman.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var other = Ecies.NewKey();
             var stranger = false;
-            try { KeyStore.Decrypt(other, blob, [9]); } catch { stranger = true; }
+            try { Ecies.Decrypt(other, blob, [9]); } catch { stranger = true; }
             Check(stranger, "ECIES : une autre clé privée ne déchiffre pas");
+        }
+        if (OperatingSystem.IsLinux())
+        {
             if (LinuxNative.KeyringAvailable(out var why))
             {
                 var name = "local-secrets:selftest-" + Guid.NewGuid().ToString("N")[..8];

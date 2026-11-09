@@ -22,9 +22,9 @@ sealed class LinuxPlatform : IPlatform
     public string ShellHints(string exe) =>
         $"Si « secret » est introuvable, appelle-le par son chemin : '{exe}' run -- <commande>. " +
         "Si une commande échoue avec « coffre verrouillé », demande à l'utilisateur de lancer « secret unlock » dans un autre terminal : " +
-        "tu ne peux pas le faire à sa place. Sous Linux, « secret show » n'ouvre pas de fenêtre : c'est aussi à lui de le taper dans " +
-        "un autre terminal. Ne propose jamais le préfixe « ! » de Claude Code pour ces commandes : leur sortie et leur saisie " +
-        "passeraient par la conversation. ";
+        "tu ne peux pas le faire à sa place. « secret show » ouvre une fenêtre sur son écran sous WSL ou sur un bureau Linux ; " +
+        "en SSH, sans écran, c'est à lui de le taper dans un autre terminal. Ne propose jamais le préfixe « ! » de Claude Code " +
+        "pour ces commandes : leur sortie et leur saisie passeraient par la conversation. ";
 
     public string BackupHint =>
         "Sans elle, un changement de PC ou l'oubli de la phrase de passe rend tout illisible. Dans ton terminal : secret backup ~/coffre.lsbackup";
@@ -37,7 +37,7 @@ sealed class LinuxPlatform : IPlatform
 
     public byte[] Unprotect(byte[] data, byte[] entropy) => KeyStore.Unprotect(data, entropy);
 
-    public bool CanDecrypt => KeyStore.Exists && KeyStore.UnlockedFor() != null;
+    public bool CanDecrypt => KeyStore.TryAutoUnlock();
 
     // Verrou de fichier : FileShare.None pose un flock exclusif, respecté par tous les processus
     // de ce compte, quelle que soit leur session.
@@ -77,12 +77,65 @@ sealed class LinuxPlatform : IPlatform
     // Sorties de programmes en UTF-8 : UTF-8 et UTF-16 sont déjà couverts.
     public IEnumerable<int> OutputCodePages() => [];
 
-    public bool IsDedicatedConsole() => LinuxNative.IsTerminal(0) && LinuxNative.IsTerminal(1);
+    // Vrai terminal en entrée et en sortie, hors d'un shell de Claude : un pseudo-terminal ouvert par
+    // Claude (script -c) porte encore CLAUDECODE=1. Les garde-fous refusent en plus « show --window ».
+    public bool IsDedicatedConsole() => LinuxNative.IsTerminal(0) && LinuxNative.IsTerminal(1) && !Ui.FromClaude;
 
-    // Pas encore de fenêtre à part sous Linux.
-    public void OpenWindow(string cwd, IEnumerable<string> args) =>
-        throw new UserError("pas de fenêtre à part sous Linux pour l'instant : demande à l'utilisateur de lancer lui-même " +
-                            "« secret show » dans son terminal. Les valeurs ne doivent pas passer par ta sortie.");
+    // Terminaux graphiques connus, avec l'option qui précède la commande à lancer.
+    static readonly (string Name, string? Flag)[] Terminals =
+    [
+        ("x-terminal-emulator", "-e"), ("gnome-terminal", "--"), ("konsole", "-e"), ("xfce4-terminal", "-x"),
+        ("kitty", null), ("alacritty", "-e"), ("xterm", "-e"),
+    ];
+
+    // Sous WSL, une console Windows qui relance secret dans la même distribution ; sur un bureau Linux,
+    // un terminal graphique. En SSH pur, pas d'écran : l'utilisateur lance secret show lui-même.
+    public void OpenWindow(string cwd, IEnumerable<string> args)
+    {
+        var exe = Environment.ProcessPath!;
+        var command = new[] { exe }.Concat(args).ToList();
+        ProcessStartInfo? psi = null;
+        var distro = Environment.GetEnvironmentVariable("WSL_DISTRO_NAME");
+        if (!string.IsNullOrEmpty(distro) && FindExecutable("cmd.exe") is { } cmd)
+        {
+            // « start » crée une console Windows séparée (conhost lancé directement resterait branché sur
+            // notre sortie). La fenêtre reçoit l'environnement de Windows, pas celui de ce processus :
+            // LOCAL_SECRETS_HOME y passe par WSLENV.
+            psi = new ProcessStartInfo(cmd) { WorkingDirectory = "/mnt/c" };
+            foreach (var a in new[] { "/c", "start", "", "wsl.exe", "-d", distro, "--cd", cwd, "--" }.Concat(command)) psi.ArgumentList.Add(a);
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LOCAL_SECRETS_HOME")))
+            {
+                var wslenv = Environment.GetEnvironmentVariable("WSLENV");
+                psi.Environment["WSLENV"] = (string.IsNullOrEmpty(wslenv) ? "" : wslenv + ":") + "LOCAL_SECRETS_HOME/p";
+            }
+        }
+        else if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")) || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
+        {
+            foreach (var (name, flag) in Terminals)
+            {
+                if (FindExecutable(name) is not { } terminal) continue;
+                psi = new ProcessStartInfo(terminal) { WorkingDirectory = cwd };
+                if (flag != null) psi.ArgumentList.Add(flag);
+                foreach (var a in command) psi.ArgumentList.Add(a);
+                break;
+            }
+        }
+        if (psi == null)
+            throw new UserError("pas d'écran où ouvrir une fenêtre (session SSH ?) : demande à l'utilisateur de lancer lui-même " +
+                                "« secret show » dans un autre terminal. Les valeurs ne doivent pas passer par ta sortie.");
+        // Le lanceur ne doit rien pouvoir renvoyer dans notre sortie, qui est peut-être celle de Claude.
+        psi.UseShellExecute = false;
+        psi.RedirectStandardInput = true;
+        psi.RedirectStandardOutput = true;
+        psi.RedirectStandardError = true;
+        psi.Environment.Remove("CLAUDECODE");
+        using var launcher = Process.Start(psi) ?? throw new UserError("ouverture de la fenêtre impossible");
+        launcher.StandardInput.Close();
+        _ = launcher.StandardOutput.ReadToEndAsync();
+        _ = launcher.StandardError.ReadToEndAsync();
+        // cmd /c start rend la main tout de suite ; un terminal graphique peut rester attaché : on n'attend pas.
+        launcher.WaitForExit(5000);
+    }
 
     const UnixFileMode AnyExecute = UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute;
 
@@ -139,8 +192,16 @@ sealed class LinuxPlatform : IPlatform
         }
         else
         {
-            yield return (false, "coffre verrouillé : « secret unlock » pour utiliser les valeurs (la conversion des .env fonctionne quand même)");
+            yield return (false, KeyStore.LockedByUser
+                ? "coffre verrouillé par « secret lock » : « secret unlock » pour le rouvrir (la conversion des .env fonctionne quand même)"
+                : "coffre verrouillé : « secret unlock » pour utiliser les valeurs (la conversion des .env fonctionne quand même)");
         }
+        if (KeyStore.Exists)
+            yield return (false, KeyStore.RememberedBy is { } method
+                ? $"clé mémorisée par : {SessionKeeper.Describe(method)} (réouverture automatique ; « secret lock --forget » pour l'oublier)"
+                : SessionKeeper.Available(out _) is { } possible
+                    ? $"réouverture automatique possible avec « secret unlock --remember » ({SessionKeeper.Describe(possible)})"
+                    : "pas de réouverture automatique ici : « secret unlock » après chaque démarrage");
 
         var loose = new[] { Vault.Home, Vault.FilePath, KeyStore.FilePath, Settings.FilePath }
             .Where(p => Path.Exists(p) && (File.GetUnixFileMode(p) & (UnixFileMode.GroupRead | UnixFileMode.OtherRead | UnixFileMode.OtherExecute)) != 0)

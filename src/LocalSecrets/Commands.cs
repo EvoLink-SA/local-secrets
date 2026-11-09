@@ -14,7 +14,7 @@ static partial class Commands
     [
         "help", "--help", "-h", "version", "--version", "set", "list", "ls", "status", "import", "protect", "unprotect",
         "run", "shell", "reveal", "rm", "remove", "undo", "backup", "restore", "scrub", "doctor", "selftest", "hook", "config",
-        "show", "env", "migrate", "generate", "setenv", "init", "unlock", "lock", "passwd",
+        "show", "env", "migrate", "generate", "setenv", "init", "unlock", "lock", "passwd", "wsl-key",
     ];
 
     public static bool IsKnown(string arg) => Known.Contains(arg, StringComparer.OrdinalIgnoreCase);
@@ -54,6 +54,10 @@ static partial class Commands
                 return OperatingSystem.IsLinux()
                     ? KeyCmd.Run(args[0].ToLowerInvariant(), rest)
                     : throw new UserError("inutile sous Windows : le coffre y est protégé par DPAPI, sans phrase de passe.");
+            case "wsl-key":
+                return OperatingSystem.IsWindows()
+                    ? WslKeyCmd.Run(rest)
+                    : throw new UserError("« secret wsl-key » est le côté Windows du pont WSL.");
             case "doctor": return Doctor.Run();
             case "selftest": return SelfTest.Run();
             case "hook": return Hooks.Run(rest.Length > 0 ? rest[0] : "");
@@ -117,9 +121,13 @@ static partial class Commands
                                                pourra plus les lire s'ils contiennent des secrets en clair
 
             Clé du coffre (Linux seulement, terminal de l'utilisateur)
-              secret init [--for DURÉE]        crée la clé du coffre, protégée par une phrase de passe
-              secret unlock [--for DURÉE]      déverrouille pour une durée (12h par défaut ; 30m, 8h, 2d)
-              secret lock                      reverrouille tout de suite
+              secret init [--for DURÉE] [--remember]
+                                               crée la clé du coffre, protégée par une phrase de passe
+              secret unlock [--for DURÉE] [--remember]
+                                               déverrouille pour une durée (12h par défaut ; 30m, 8h, 2d) ;
+                                               --remember : la clé est confiée à la DPAPI de Windows (WSL)
+                                               ou au trousseau de session (bureau), le coffre se rouvre seul
+              secret lock [--forget]           reverrouille tout de suite ; --forget oublie la copie mémorisée
               secret passwd                    change la phrase de passe
 
             Chargement automatique dans le terminal

@@ -16,7 +16,11 @@ static class LinuxNative
     // comme à son terminal, et vidé au redémarrage.
     const long UserKeyring = -4;
 
+    // Trousseau du processus : la clé y naît, possédée par nous, le temps d'en régler les droits.
+    const long ProcessKeyring = -2;
+
     const long KeyctlSetPerm = 5;
+    const long KeyctlLink = 8;
     const long KeyctlSearch = 10;
     const long KeyctlRead = 11;
     const long KeyctlSetTimeout = 15;
@@ -64,12 +68,16 @@ static class LinuxNative
     }
 
     // Range (ou remplace) une valeur dans le trousseau de l'utilisateur, pour une durée limitée.
+    // La clé est créée dans le trousseau du processus, qu'on possède toujours : ajoutée directement à
+    // @u, elle ne serait pas « possédée » sans session de connexion (conteneur, certains SSH), et ses
+    // droits ne pourraient pas être réglés. Elle est ensuite reliée à @u, où elle remplace l'ancienne.
     public static void Store(string description, byte[] payload, TimeSpan lifetime)
     {
-        var key = AddKey(SysAddKey, CString("user"), CString(description), payload, (nuint)payload.Length, UserKeyring);
+        var key = AddKey(SysAddKey, CString("user"), CString(description), payload, (nuint)payload.Length, ProcessKeyring);
         if (key < 0) throw Failure("ajout au trousseau noyau");
         if (Keyctl(SysKeyctl, KeyctlSetPerm, key, KeyPerm) < 0) throw Failure("droits de la clé");
         if (Keyctl(SysKeyctl, KeyctlSetTimeout, key, (ulong)Math.Max(1, lifetime.TotalSeconds)) < 0) throw Failure("durée de la clé");
+        if (Keyctl(SysKeyctl, KeyctlLink, key, unchecked((ulong)UserKeyring)) < 0) throw Failure("rattachement au trousseau de l'utilisateur");
     }
 
     // Valeur rangée sous ce nom, ou null si elle n'existe pas ou a expiré.

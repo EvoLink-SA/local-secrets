@@ -77,12 +77,27 @@ Déverrouillée, la clé privée reste en mémoire dans le trousseau noyau de to
 clair sur le disque ; elle disparaît au redémarrage ou à la fin de la durée choisie. Coffre
 verrouillé, les `.env` sont quand même convertis (seule la clé publique sert à chiffrer), mais
 `secret run` et le chargement du terminal demandent un `secret unlock`. Claude ne peut ni
-déverrouiller ni recevoir la phrase de passe : il te demande de le faire dans ton terminal.
+déverrouiller ni recevoir la phrase de passe : il te demande de le faire dans un autre terminal.
+
+**Ne plus taper la phrase de passe** (poste de travail) :
+
+```bash
+secret unlock --remember   # une fois : la clé est confiée au gardien de ta session
+secret lock                # reverrouille ; pas de réouverture seule avant ton prochain unlock
+secret lock --forget       # reverrouille et retire la copie confiée au gardien
+```
+
+Le gardien est la **DPAPI de Windows sous WSL** (le `secret.exe` du même dépôt, appelé à travers
+WSL : la clé ne revient jamais en clair dans sa sortie, elle est chiffrée pour une clé jetable du
+processus qui la demande), ou le **trousseau de session sur un bureau Linux** (GNOME Keyring,
+KWallet, via `secret-tool`). Le coffre se rouvre alors tout seul, comme sous Windows. Sur un
+serveur sans bureau, il n'y a pas de gardien : la phrase de passe reste la seule clé.
 
 Dans le terminal, le chargement automatique fonctionne comme sous PowerShell ; après un
 `secret set` ou un `secret unlock`, recharge avec `local_secrets_reload`. Une clé dont le nom
 n'est pas un nom de variable shell (`3CX_PASSWORD`) n'est pas chargée : passe par `secret run`.
-Pas encore de fenêtre à part pour `secret show` : lance-le toi-même dans ton terminal.
+`secret show` lancé par Claude ouvre une fenêtre à part : une console Windows sous WSL, un
+terminal graphique sur un bureau. En SSH, sans écran, lance-le toi-même dans un autre terminal.
 
 **Passer un coffre de Windows à Linux** : `secret backup` sous Windows, copie le fichier, puis
 `secret restore` sous Linux. Un `vault.json` copié tel quel est refusé, avec la marche à suivre.
@@ -428,7 +443,8 @@ l'entrée du PATH. Le coffre (`%USERPROFILE%\.local-secrets`) reste en place : f
 .\build.ps1                 # compile en natif (Native AOT) et lance secret selftest
 .\build.ps1 -Linux          # compile le binaire linux-x64 dans Docker (SDK .NET 10 + clang)
 .\tests\e2e.ps1             # tests de bout en bout : CLI, hooks, terminal, fenêtre, WSL
-wsl bash tests/e2e.sh       # tests de bout en bout Linux : clé, verrouillage, terminal bash, hooks
+wsl bash tests/e2e.sh       # tests de bout en bout Linux : clé, verrouillage, pont WSL, terminal bash, hooks
+.\tests\secret-service.ps1  # trousseau de session (GNOME Keyring) dans un conteneur Docker
 claude --plugin-dir .\plugins\local-secrets    # essayer le plugin sans l'installer
 ```
 
