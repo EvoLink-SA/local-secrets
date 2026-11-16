@@ -137,3 +137,7 @@ It offers to restore your `.env` files in clear first, then removes the plugin, 
 The compiled binaries in `plugins/*/tools` are committed: rebuild and commit them with each version.
 
 Detailed guide (French): [docs/guide-fr.md](docs/guide-fr.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE).
