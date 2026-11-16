@@ -113,6 +113,10 @@ static class SelfTest
         Check(Classifier.ScanText("le mot de passe est Winter2025!").Count > 0, "mot de passe dans une phrase");
         Check(Classifier.ScanText("le mot de passe est dans le fichier .env").Count == 0, "phrase sans valeur");
         Check(Classifier.ScanText("utilise secret://monprojet/DB_PASSWORD pour ça").Count == 0, "référence secret://");
+        Check(Classifier.ScanText("1Password : utilisé par beaucoup d'équipes").Count == 0
+              && Classifier.ScanText("Secrets: rien de neuf").Count == 0, "phrase « Nom : texte » sans secret");
+        Check(Classifier.ScanText("db_password: hunter22").Count > 0
+              && Classifier.ScanText("PASSWORD : Winter2025!").Count > 0, "ligne clé: valeur collée");
         Check(Classifier.ScanText("-----BEGIN OPENSSH PRIVATE KEY-----\nabc").Count > 0, "clé privée collée");
         Check(Classifier.ScanText("mon token ghp_" + new string('a', 36)).Count > 0, "jeton GitHub");
         Check(Classifier.ScanText("le commit 3f2a9c8e1b7d6f5a4c3b2a1908f7e6d5c4b3a291 casse le build").Count == 0, "empreinte de commit");
