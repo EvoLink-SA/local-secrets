@@ -42,6 +42,20 @@ No admin rights needed. The script runs the self-tests, adds `secret` to the PAT
 
 Restart your terminals and Claude Code afterwards.
 
+### Stay up to date (optional)
+
+The script installs the plugin from your local clone. To get plugin updates automatically, switch to the GitHub marketplace:
+
+```bash
+claude plugin marketplace remove local-secrets          # removes the local one and its plugin
+claude plugin marketplace add EvoLink-SA/local-secrets
+claude plugin install local-secrets@local-secrets       # local-secrets-linux@local-secrets on Linux
+```
+
+Then in Claude Code: `/plugin` > **Marketplaces** > `local-secrets` > **Enable auto-update**.
+
+The `secret` command in your terminal still comes from your clone: run `git pull` from time to time. `secret doctor` warns when the two versions differ.
+
 ## Daily use
 
 1. Fill your `.env` as before, secrets and settings mixed.
