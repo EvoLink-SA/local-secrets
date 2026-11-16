@@ -184,16 +184,16 @@ static class SelfTest
         foreach (var (text, key) in dirty) Check(M(text).Contains(OutputMasker.Marker(key)), $"masqué : {key}");
 
         Console.WriteLine("Format clé:valeur, variables système, tableaux");
-        var colon = EnvFile.Parse(Encoding.UTF8.GetBytes("# vm\nssh_user:shay\nssh_password:Zq8!rT4#pLm\nKEY=a:b\n"));
+        var colon = EnvFile.Parse(Encoding.UTF8.GetBytes("# vm\nssh_user:deploy\nssh_password:Zq8!rT4#pLm\nKEY=a:b\n"));
         var ck = colon.Assignments.ToDictionary(a => a.Key);
         Check(ck.ContainsKey("ssh_user") && ck["ssh_password"].Value == "Zq8!rT4#pLm" && ck["KEY"].Value == "a:b" && colon.UnrecognizedLines().Count == 0,
               ".env : lignes clé:valeur reconnues, CLÉ=a:b intact");
-        Check(Classifier.Classify("ssh_password", ck["ssh_password"].Value, Annotation.None).Secret && !Classifier.Classify("ssh_user", "shay", Annotation.None).Secret,
+        Check(Classifier.Classify("ssh_password", ck["ssh_password"].Value, Annotation.None).Secret && !Classifier.Classify("ssh_user", "deploy", Annotation.None).Secret,
               ".env : ssh_password à chiffrer, ssh_user en clair");
         var colonOut = EnvFile.Parse(colon.Render(new Dictionary<EnvAssignment, string> { [ck["ssh_password"]] = "secret://vm/ssh_password" }, addHeader: false));
         Check(colonOut.Lines.Contains("ssh_password:secret://vm/ssh_password"), ".env : la référence garde le format clé:valeur");
         Check(EnvFile.Parse(Encoding.UTF8.GetBytes("A=1\nceci n'est pas une affectation\n")).UnrecognizedLines().SequenceEqual([1]), ".env : ligne non reconnue repérée");
-        Check(M("ssh_user:shay\nssh_password:Zq8!rT4#pLm\n") == "ssh_user:shay\nssh_password:" + OutputMasker.Marker("ssh_password") + "\n", "sortie : clé:valeur sans espace masqué");
+        Check(M("ssh_user:deploy\nssh_password:Zq8!rT4#pLm\n") == "ssh_user:deploy\nssh_password:" + OutputMasker.Marker("ssh_password") + "\n", "sortie : clé:valeur sans espace masqué");
         const string sysenv = "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus\nXDG_SESSION_ID=4\nINVOCATION_ID=7c1e4b2a9d3f4e5a8b6c1d2e3f4a5b6c\nSSH_CLIENT=10.40.41.5 52044 22\n";
         Check(M(sysenv) == sysenv, "variables système Linux (DBUS, XDG_SESSION_ID, INVOCATION_ID, SSH_CLIENT) : visibles");
         Check(M("XDG_SESSION_COOKIE=3f2a9c8e1b7d6f5a4c3b2a1908f7e6d5").Contains(OutputMasker.Marker("XDG_SESSION_COOKIE")), "cookie de session : masqué");
@@ -251,15 +251,15 @@ static class SelfTest
               "commande sûre enchaînée à une lecture : pas sûre");
 
         Console.WriteLine("0.1.5 : clés qui commencent par un chiffre");
-        var digit = EnvFile.Parse(Encoding.UTF8.GetBytes("3CX_HOST_SSH_USER=evolink\n3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm\n10.10.40.60:22\n"));
+        var digit = EnvFile.Parse(Encoding.UTF8.GetBytes("3CX_HOST_SSH_USER=admin\n3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm\n10.0.0.60:22\n"));
         Check(digit.Assignments.Select(a => a.Key).SequenceEqual(["3CX_HOST_SSH_USER", "3CX_HOST_SSH_PASSWORD"]) && digit.UnrecognizedLines().SequenceEqual([2]),
-              ".env : 3CX_...=valeur reconnu, « 10.10.40.60:22 » reste du texte");
-        Check(Classifier.Classify("3CX_HOST_SSH_PASSWORD", "Zq8!rT4#pLm", Annotation.None).Secret && !Classifier.Classify("3CX_HOST_SSH_USER", "evolink", Annotation.None).Secret,
+              ".env : 3CX_...=valeur reconnu, « 10.0.0.60:22 » reste du texte");
+        Check(Classifier.Classify("3CX_HOST_SSH_PASSWORD", "Zq8!rT4#pLm", Annotation.None).Secret && !Classifier.Classify("3CX_HOST_SSH_USER", "admin", Annotation.None).Secret,
               ".env : 3CX_HOST_SSH_PASSWORD à chiffrer, 3CX_HOST_SSH_USER en clair");
         Check(EnvFile.ParseReference("secret://lab/3CX_HOST_SSH_PASSWORD") == "lab/3CX_HOST_SSH_PASSWORD" && Vault.IsValidName("lab/3CX_HOST_SSH_PASSWORD"),
               "référence secret://lab/3CX_... valide");
         Check(M("3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm\n").Contains(OutputMasker.Marker("3CX_HOST_SSH_PASSWORD")), "sortie : 3CX_...=valeur masqué");
-        Check(M("10.10.40.60:22\n") == "10.10.40.60:22\n", "sortie : adresse:port intacte");
+        Check(M("10.0.0.60:22\n") == "10.0.0.60:22\n", "sortie : adresse:port intacte");
         Check(Classifier.ScanText("3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm").Count > 0, "message : 3CX_...=valeur repéré");
         Check(Guards.CheckForbidden("echo [masqué:3CX_HOST_SSH_PASSWORD] > lab.env") != null, "commande contenant un masque 3CX_... refusée");
 

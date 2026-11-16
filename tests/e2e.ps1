@@ -89,10 +89,10 @@ try {
     Check ($res.Trim().Length -eq 0) 'Read d''un .env déjà protégé : rien à signaler'
 
     $lab = Join-Path $proj 'sub\lab.env'
-    [IO.File]::WriteAllText($lab, "3CX_HOST_SSH_USER=evolink`n3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm`nadmin / Zq8!rT4#pLm`n")
+    [IO.File]::WriteAllText($lab, "3CX_HOST_SSH_USER=admin`n3CX_HOST_SSH_PASSWORD=Zq8!rT4#pLm`nadmin / Zq8!rT4#pLm`n")
     $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; tool_input = @{ file_path = $lab } }
     $text = [IO.File]::ReadAllText($lab)
-    Check ($text -match '3CX_HOST_SSH_PASSWORD=secret://[^/\s]+/3CX_HOST_SSH_PASSWORD' -and $text.Contains('3CX_HOST_SSH_USER=evolink')) 'Read d''un .env : clé qui commence par un chiffre convertie'
+    Check ($text -match '3CX_HOST_SSH_PASSWORD=secret://[^/\s]+/3CX_HOST_SSH_PASSWORD' -and $text.Contains('3CX_HOST_SSH_USER=admin')) 'Read d''un .env : clé qui commence par un chiffre convertie'
     Check ($res.Contains('format non reconnu') -and $res.Contains('ligne 4')) 'Read d''un .env : ligne non reconnue signalée, numéro après en-tête'
 
     $res = Hook 'pre-tool-use' @{ tool_name = 'Bash'; tool_input = @{ command = 'secret reveal monprojet/SSH_PASS' } }
@@ -269,10 +269,10 @@ try {
     'Format clé:valeur dans un .env'
     $colonDir = Join-Path $root 'vm-projet'
     New-Item -ItemType Directory -Force $colonDir | Out-Null
-    [IO.File]::WriteAllText((Join-Path $colonDir '.env'), "ssh_user:shay`nssh_password:Zq8!rT4#pLm`nAPI_URL=https://api.client.ch`n")
+    [IO.File]::WriteAllText((Join-Path $colonDir '.env'), "ssh_user:deploy`nssh_password:Zq8!rT4#pLm`nAPI_URL=https://api.client.ch`n")
     $res = Hook 'pre-tool-use' @{ tool_name = 'Read'; cwd = $colonDir; tool_input = @{ file_path = (Join-Path $colonDir '.env') } }
     $content = [IO.File]::ReadAllText((Join-Path $colonDir '.env'))
-    Check ($content.Contains('ssh_password:secret://vm-projet/ssh_password') -and $content.Contains('ssh_user:shay') -and -not $content.Contains('Zq8!')) '.env au format clé:valeur : mot de passe chiffré avant lecture, format conservé'
+    Check ($content.Contains('ssh_password:secret://vm-projet/ssh_password') -and $content.Contains('ssh_user:deploy') -and -not $content.Contains('Zq8!')) '.env au format clé:valeur : mot de passe chiffré avant lecture, format conservé'
     Push-Location $colonDir
     $same = & $Exe run -- cmd /c 'if "%ssh_password%"=="Zq8!rT4#pLm" (echo identique) else (echo differente)' | Out-String
     Pop-Location

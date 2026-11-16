@@ -1,7 +1,7 @@
 {
   "name": "local-secrets-linux",
   "version": "0.2.2",
-  "description": "Secrets locaux chiffrés (Linux, WSL) : les .env sont protégés au premier accès et Claude utilise les valeurs via secret run sans jamais les voir.",
+  "description": "Linux and WSL: project secrets encrypted locally with a passphrase-protected key. .env files are protected on first access and Claude uses the values through secret run without ever seeing them.",
   "author": {
     "name": "nicolas.vidmer"
   },
