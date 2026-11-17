@@ -187,11 +187,11 @@ préfixe `!`, dont la sortie te reviendrait).
 Après conversion, tout ce qui lit le `.env` directement reçoit les références `secret://` au lieu
 des valeurs. C'est la première source d'ennuis. Donc :
 
-- **Son terminal** (PowerShell sous Windows, bash ou zsh sous Linux) charge tout seul les secrets du
+- **Son terminal** (PowerShell sous Windows, bash, zsh ou fish sous Linux) charge tout seul les secrets du
   projet quand il entre dans le dossier (si l'intégration est installée : message « secret(s)
   chargé(s) »). Là, `docker compose up -d`, `npm run dev` ou `code .` marchent sans préfixe. Après un
   `secret set` ou un `secret unlock`, il recharge avec `Update-LocalSecrets -Force` (PowerShell) ou
-  `local_secrets_reload` (bash, zsh). Sous bash et zsh, une clé dont le nom n'est pas un nom de
+  `local_secrets_reload` (bash, zsh, fish). Sous Linux, une clé dont le nom n'est pas un nom de
   variable shell (`3CX_PASSWORD`) n'est pas chargée : passe par `secret run`. Si Claude Code a été
   lancé depuis ce terminal, tes commandes reçoivent aussi les valeurs (le contexte de démarrage te
   le dit), et leurs sorties restent masquées.

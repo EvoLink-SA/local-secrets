@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installe local-secrets pour l'utilisateur courant sous Linux ou WSL, sans droits root :
 # vérifie le binaire livré, le place dans ~/.local/bin, branche le chargement automatique dans
-# ~/.bashrc et ~/.zshrc, installe le plugin Claude Code, puis crée la clé du coffre.
+# ~/.bashrc, ~/.zshrc et la config de fish, installe le plugin Claude Code, puis crée la clé du coffre.
 # Désinstallation : uninstall.sh.
 set -euo pipefail
 
@@ -9,6 +9,7 @@ root=$(cd "$(dirname "$0")" && pwd)
 bin="$root/plugins/local-secrets-linux/tools"
 exe="$bin/secret"
 profile_script="$root/shell/local-secrets.sh"
+fish_script="$root/shell/local-secrets.fish"
 
 if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
     echo "local-secrets est livré pour Linux x86_64 seulement (ici : $(uname -s) $(uname -m))." >&2
@@ -36,7 +37,7 @@ case ":$PATH:" in
     *) echo "   ~/.local/bin n'est pas dans le PATH de ce terminal : la plupart des distributions l'ajoutent à la prochaine connexion." ;;
 esac
 
-echo '2. Chargement automatique (bash, zsh)'
+echo '2. Chargement automatique (bash, zsh, fish)'
 line="[ -f '$profile_script' ] && . '$profile_script'  # local-secrets"
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
     if [ "$rc" = "$HOME/.zshrc" ] && [ ! -f "$rc" ]; then continue; fi
@@ -54,6 +55,13 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
         echo "   $rc : ligne ajoutée."
     fi
 done
+# fish lit tout seul les fichiers de conf.d : un fichier à nous, réécrit à chaque installation.
+fish_conf="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d"
+if command -v fish > /dev/null 2>&1 || [ -d "$fish_conf" ]; then
+    mkdir -p "$fish_conf"
+    printf "test -f '%s'; and source '%s'  # local-secrets\n" "$fish_script" "$fish_script" > "$fish_conf/local-secrets.fish"
+    echo "   $fish_conf/local-secrets.fish : en place."
+fi
 
 echo '3. Plugin Claude Code'
 claude_path=$(command -v claude 2> /dev/null || true)

@@ -45,7 +45,7 @@ Relance ensuite tes terminaux, Claude Code et Claude Desktop.
 
 ## Linux et WSL
 
-Prérequis : Linux x86_64 (poste, serveur ou WSL 2), bash ou zsh, OpenSSL (présent sur les
+Prérequis : Linux x86_64 (poste, serveur ou WSL 2), bash, zsh ou fish, OpenSSL (présent sur les
 distributions courantes), Claude Code installé côté Linux. Le binaire `secret` est livré compilé.
 
 ```bash
@@ -57,7 +57,7 @@ cd local-secrets
 Le script, sans droits root :
 1. lance les tests internes de `secret` ;
 2. crée le lien `~/.local/bin/secret` ;
-3. ajoute une ligne à `~/.bashrc` (et `~/.zshrc` s'il existe) pour le chargement automatique ;
+3. branche le chargement automatique : une ligne dans `~/.bashrc` (et `~/.zshrc` s'il existe), et `~/.config/fish/conf.d/local-secrets.fish` si fish est installé ;
 4. déclare la marketplace locale et installe le plugin `local-secrets-linux` dans Claude Code ;
 5. crée la clé du coffre (`secret init`, phrase de passe de 12 caractères minimum) ;
 6. lance `secret doctor`.

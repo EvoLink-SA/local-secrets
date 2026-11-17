@@ -161,7 +161,7 @@ static class DisplayGuard
 
 // « secret env » : pour le chargement automatique dans le terminal de l'utilisateur (profil du shell).
 // Renvoie les secrets du projet du dossier courant, en JSON (PowerShell) ou en affectations shell
-// (--format sh, bash et zsh) ; la sortie part dans une variable du profil, jamais à l'écran.
+// (--format sh pour bash et zsh, --format fish) ; la sortie part dans une variable du profil, jamais à l'écran.
 // Refusé depuis Claude Code et depuis une entrée redirigée.
 static partial class EnvCmd
 {
@@ -170,11 +170,11 @@ static partial class EnvCmd
         if (Ui.FromClaude || Console.IsInputRedirected)
             throw new UserError("« secret env » est réservé au chargement automatique de ton terminal.");
         var dir = Environment.CurrentDirectory;
-        var shell = false;
+        string? format = null;
         for (var i = 0; i < args.Length; i++)
         {
             if (args[i] == "--dir" && i + 1 < args.Length) dir = args[++i];
-            else if (args[i] == "--format" && i + 1 < args.Length) shell = args[++i] == "sh";
+            else if (args[i] == "--format" && i + 1 < args.Length) format = args[++i];
         }
 
         // Lecture seule : entrer dans un dossier ne convertit jamais rien.
@@ -189,9 +189,9 @@ static partial class EnvCmd
         if (vars.Count == 0) return 0;
 
         var stamp = $"{File.GetLastWriteTimeUtc(file).Ticks}-{(File.Exists(Vault.FilePath) ? File.GetLastWriteTimeUtc(Vault.FilePath).Ticks : 0)}";
-        if (shell)
+        if (format is "sh" or "fish")
         {
-            WriteShell(Path.GetDirectoryName(file)!, stamp, vars);
+            WriteShell(Path.GetDirectoryName(file)!, stamp, vars, format == "fish");
             return 0;
         }
         var o = new JsonObject { ["dir"] = Path.GetDirectoryName(file), ["file"] = file, ["stamp"] = stamp, ["vars"] = vars };
@@ -203,19 +203,25 @@ static partial class EnvCmd
     [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*$")]
     private static partial Regex ShellNameRx();
 
-    // Affectations lues par shell/local-secrets.sh avec eval. Chaque valeur est entre guillemets
-    // simples ; une clé qui n'est pas un nom de variable shell valide (3CX_PASSWORD) est écartée.
-    static void WriteShell(string dir, string stamp, JsonObject vars)
+    // Affectations lues par shell/local-secrets.sh (eval) ou shell/local-secrets.fish (source).
+    // Chaque valeur est entre guillemets simples ; une clé qui n'est pas un nom de variable shell
+    // valide (3CX_PASSWORD) est écartée. fish échappe \ et ' dans les guillemets simples ; sh n'y
+    // connaît aucun échappement : il ferme, ajoute \', puis rouvre.
+    static void WriteShell(string dir, string stamp, JsonObject vars, bool fish)
     {
-        static string Quote(string s) => "'" + s.Replace("'", "'\\''") + "'";
+        string Quote(string s) => fish
+            ? "'" + s.Replace(@"\", @"\\").Replace("'", @"\'") + "'"
+            : "'" + s.Replace("'", @"'\''") + "'";
         var names = vars.Select(v => v.Key).Where(k => ShellNameRx().IsMatch(k)).ToList();
         var skipped = vars.Select(v => v.Key).Where(k => !ShellNameRx().IsMatch(k)).ToList();
         var sb = new StringBuilder();
-        sb.Append("_LS_NEW_DIR=").Append(Quote(dir)).Append('\n');
-        sb.Append("_LS_NEW_STAMP=").Append(Quote(stamp)).Append('\n');
-        sb.Append("_LS_NEW_VARS=").Append(Quote(string.Join(' ', names))).Append('\n');
-        sb.Append("_LS_SKIPPED=").Append(Quote(string.Join(' ', skipped))).Append('\n');
-        foreach (var name in names) sb.Append("_ls_val_").Append(name).Append('=').Append(Quote((string?)vars[name] ?? "")).Append('\n');
+        void Set(string name, string value) =>
+            sb.Append(fish ? "set -g " : "").Append(name).Append(fish ? " " : "=").Append(Quote(value)).Append('\n');
+        Set("_LS_NEW_DIR", dir);
+        Set("_LS_NEW_STAMP", stamp);
+        Set("_LS_NEW_VARS", string.Join(' ', names));
+        Set("_LS_SKIPPED", string.Join(' ', skipped));
+        foreach (var name in names) Set("_ls_val_" + name, (string?)vars[name] ?? "");
         Console.Out.Write(sb.ToString());
     }
 

@@ -30,7 +30,7 @@ cd local-secrets
 .\install.ps1
 ```
 
-**Linux x86_64 or WSL 2**, bash or zsh, OpenSSL, Claude Code installed on the Linux side.
+**Linux x86_64 or WSL 2**, bash, zsh or fish, OpenSSL, Claude Code installed on the Linux side.
 
 ```bash
 git clone https://github.com/EvoLink-SA/local-secrets.git

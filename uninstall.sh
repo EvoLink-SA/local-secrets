@@ -55,6 +55,11 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
         echo "   ligne retirée de $rc"
     fi
 done
+fish_conf="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/local-secrets.fish"
+if [ -f "$fish_conf" ]; then
+    rm -f "$fish_conf"
+    echo "   $fish_conf retiré."
+fi
 
 echo '4. Commande secret'
 if [ -L "$HOME/.local/bin/secret" ]; then

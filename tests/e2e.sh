@@ -151,6 +151,34 @@ check 'grep -q "charge=oui" "$root/term.result"' 'chargement auto : secrets du p
 check 'grep -q "remplace=oui" "$root/term.result"' 'chargement auto : variable existante remplacée'
 check 'grep -q "retabli=oui" "$root/term.result"' 'chargement auto : retirés en sortant, valeur d avant rétablie'
 
+echo 'Terminal (fish)'
+if command -v fish > /dev/null 2>&1; then
+    # Valeur piège pour les guillemets de fish : apostrophe, barres obliques inverses, $ et fin en \.
+    tricky="X'y\\z\\\\\$HOME\"\\"
+    printf '%s' "$tricky" | "$exe" set TRICKY_PASSWORD > /dev/null
+    cat > "$root/term.fish" <<EOF
+set -gx PATH "$work" \$PATH
+set -gx SSH_PASS avant
+cd "$root"
+source "$here/../shell/local-secrets.fish"
+cd "$proj"
+set r1 non; test "\$POSTGRES_PASSWORD" = "\$E2E_PG"; and set r1 oui
+set r2 non; test "\$SSH_PASS" = "\$E2E_SSH"; and set r2 oui
+set r4 non; test "\$TRICKY_PASSWORD" = "\$E2E_TRICKY"; and set r4 oui
+cd /
+set r3 non; not set -q POSTGRES_PASSWORD; and test "\$SSH_PASS" = avant; and set r3 oui
+echo "charge=\$r1 remplace=\$r2 retabli=\$r3 guillemets=\$r4" > "$root/fish.result"
+EOF
+    E2E_PG=$pg E2E_SSH=$ssh E2E_TRICKY=$tricky script -qec "fish --no-config -i -c 'source $root/term.fish'" /dev/null > /dev/null 2>&1
+    check 'grep -q "charge=oui" "$root/fish.result"' 'fish : secrets du projet chargés en entrant'
+    check 'grep -q "remplace=oui" "$root/fish.result"' 'fish : variable existante remplacée'
+    check 'grep -q "guillemets=oui" "$root/fish.result"' 'fish : apostrophe, \ et $ gardés tels quels'
+    check 'grep -q "retabli=oui" "$root/fish.result"' 'fish : retirés en sortant, valeur d avant rétablie'
+    sed -i "/^TRICKY_PASSWORD=/d" "$proj/.env"
+else
+    echo '  ignoré : fish absent'
+fi
+
 echo 'Hooks'
 printf 'HOOK_PASSWORD=%s\n' "$ssh" > sub/hook.env
 out=$(hook pre-tool-use "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$proj/sub/hook.env\"},\"cwd\":\"$proj\",\"session_id\":\"e2e\"}")

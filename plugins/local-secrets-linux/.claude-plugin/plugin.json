@@ -1,6 +1,6 @@
 {
   "name": "local-secrets-linux",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Linux and WSL: project secrets encrypted locally with a passphrase-protected key. .env files are protected on first access and Claude uses the values through secret run without ever seeing them.",
   "author": {
     "name": "nicolas.vidmer"

@@ -9,13 +9,13 @@
       "name": "local-secrets",
       "source": "./plugins/local-secrets",
       "description": "Windows: project secrets encrypted locally with DPAPI. .env files are protected on first access and Claude uses the values through secret run without ever seeing them.",
-      "version": "0.2.3"
+      "version": "0.2.4"
     },
     {
       "name": "local-secrets-linux",
       "source": "./plugins/local-secrets-linux",
       "description": "Linux and WSL: project secrets encrypted locally with a passphrase-protected key. .env files are protected on first access and Claude uses the values through secret run without ever seeing them.",
-      "version": "0.2.3"
+      "version": "0.2.4"
     }
   ]
 }

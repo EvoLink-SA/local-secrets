@@ -1,6 +1,6 @@
 {
   "name": "local-secrets",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Windows: project secrets encrypted locally with DPAPI. .env files are protected on first access and Claude uses the values through secret run without ever seeing them.",
   "author": {
     "name": "nicolas.vidmer"
