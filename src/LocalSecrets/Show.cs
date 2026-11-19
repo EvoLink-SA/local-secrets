@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -38,33 +39,54 @@ static class ShowCmd
         return 0;
     }
 
+    // Attente maximale d'une touche : une fenêtre oubliée se ferme seule.
+    internal static readonly TimeSpan KeyTimeout = TimeSpan.FromMinutes(5);
+
     static int Window(string label, List<(string Key, string Name)> items)
     {
         try { Console.Title = "local-secrets"; } catch { }
         DisplayGuard.Open();
+        // Fenêtre fermée par la croix : effacer et noter la fermeture avant que le processus ne soit tué.
+        using var onClose = PosixSignalRegistration.Create(PosixSignal.SIGHUP, _ => Clear());
         try
         {
             Console.Write($"local-secrets : afficher {items.Count} valeur(s) secrète(s) de {label} ? [o/N] ");
-            var answer = Console.ReadKey();
+            var answer = ReadKey(intercept: false);
             Console.WriteLine();
-            if (char.ToLowerInvariant(answer.KeyChar) is not ('o' or 'y'))
+            if (answer is not { } key || char.ToLowerInvariant(key.KeyChar) is not ('o' or 'y'))
             {
-                Console.WriteLine("Annulé, rien n'a été affiché.");
+                Console.WriteLine(answer == null ? "Pas de réponse, rien n'a été affiché." : "Annulé, rien n'a été affiché.");
                 Thread.Sleep(1200);
                 return 1;
             }
             Console.WriteLine();
             Print(items);
             Console.WriteLine();
-            Console.Write("Appuie sur une touche pour fermer. L'écran sera effacé.");
-            Console.ReadKey(intercept: true);
+            Console.Write($"Appuie sur une touche pour fermer (fermeture automatique dans {KeyTimeout.TotalMinutes:0} minutes). L'écran sera effacé.");
+            ReadKey(intercept: true);
             return 0;
         }
         finally
         {
-            try { Console.Clear(); Console.Write("\u001b[3J"); } catch { }
-            DisplayGuard.Close();
+            Clear();
         }
+    }
+
+    static void Clear()
+    {
+        try { Console.Clear(); Console.Write("\u001b[3J"); } catch { }
+        DisplayGuard.Close();
+    }
+
+    static ConsoleKeyInfo? ReadKey(bool intercept)
+    {
+        var end = DateTime.UtcNow + KeyTimeout;
+        while (DateTime.UtcNow < end)
+        {
+            if (Console.KeyAvailable) return Console.ReadKey(intercept);
+            Thread.Sleep(100);
+        }
+        return null;
     }
 
     static void Print(List<(string Key, string Name)> items)
@@ -118,7 +140,16 @@ static class DisplayGuard
     static string FilePath => Path.Combine(Vault.Home, "display.json");
     static readonly TimeSpan ClipboardDelay = TimeSpan.FromMinutes(10);
 
-    public static void Open() => Write(new JsonObject { ["pid"] = Environment.ProcessId, ["opened"] = DateTime.UtcNow });
+    // La fenêtre se ferme seule après deux attentes de ShowCmd.KeyTimeout : au-delà, une trace
+    // « ouverte » vient d'une fenêtre tuée sans avoir pu l'effacer.
+    static readonly TimeSpan MaxOpen = ShowCmd.KeyTimeout * 2 + TimeSpan.FromMinutes(1);
+
+    public static void Open() => Write(new JsonObject
+    {
+        ["pid"] = Environment.ProcessId,
+        ["started"] = StartTime(Environment.ProcessId),
+        ["opened"] = DateTime.UtcNow,
+    });
 
     public static void Close() => Write(new JsonObject { ["pid"] = Environment.ProcessId, ["closed"] = DateTime.UtcNow });
 
@@ -127,11 +158,8 @@ static class DisplayGuard
         try
         {
             if (!File.Exists(FilePath)) return (false, false);
-            var o = JsonNode.Parse(File.ReadAllText(FilePath)) as JsonObject;
-            if (o?["closed"] is { } closed) return (false, DateTime.UtcNow - closed.GetValue<DateTime>() < ClipboardDelay);
-            var pid = (int?)o?["pid"] ?? 0;
-            if (IsAlive(pid)) return (true, true);
-            return (false, DateTime.UtcNow - File.GetLastWriteTimeUtc(FilePath) < ClipboardDelay);
+            var o = JsonNode.Parse(File.ReadAllText(FilePath)) as JsonObject ?? new JsonObject();
+            return Evaluate(o, File.GetLastWriteTimeUtc(FilePath), DateTime.UtcNow, StartTime);
         }
         catch
         {
@@ -139,10 +167,27 @@ static class DisplayGuard
         }
     }
 
-    static bool IsAlive(int pid)
+    // startTime(pid) : heure de démarrage du processus vivant qui porte ce numéro, null s'il n'existe plus.
+    internal static (bool Open, bool Recent) Evaluate(JsonObject o, DateTime lastWrite, DateTime now, Func<int, DateTime?> startTime)
     {
-        try { using var p = Process.GetProcessById(pid); return !p.HasExited; }
-        catch { return false; }
+        if (o["closed"] is { } closed) return (false, now - closed.GetValue<DateTime>() < ClipboardDelay);
+        var recent = now - lastWrite < ClipboardDelay;
+        if (o["opened"] is not { } openedNode || now - openedNode.GetValue<DateTime>() > MaxOpen) return (false, recent);
+        // Windows recycle vite les numéros de processus : le même numéro avec une autre heure de
+        // démarrage est un autre programme, pas la fenêtre.
+        var alive = startTime((int?)o["pid"] ?? 0);
+        var open = alive != null && (o["started"] is not { } started || (alive.Value - started.GetValue<DateTime>()).Duration() < TimeSpan.FromSeconds(2));
+        return open ? (true, true) : (false, recent);
+    }
+
+    static DateTime? StartTime(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return p.HasExited ? null : p.StartTime.ToUniversalTime();
+        }
+        catch { return null; }
     }
 
     static void Write(JsonObject o)

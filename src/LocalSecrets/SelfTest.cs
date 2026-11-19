@@ -113,6 +113,26 @@ static class SelfTest
         Check(Classifier.ScanText("le mot de passe est Winter2025!").Count > 0, "mot de passe dans une phrase");
         Check(Classifier.ScanText("le mot de passe est dans le fichier .env").Count == 0, "phrase sans valeur");
         Check(Classifier.ScanText("utilise secret://monprojet/DB_PASSWORD pour ça").Count == 0, "référence secret://");
+        Check(Classifier.ScanText("voir profils/evolink/temoins/jeton-confirmation.yaml et token.service.ts").Count == 0,
+              "libellé collé à un nom de fichier");
+        Check(Classifier.ScanText("token->Xk9mQ2vL7pR4wZ8n").Count > 0 && Classifier.ScanText("jeton : Xk9mQ2vL7pR4wZ8n").Count > 0,
+              "libellé suivi d'un séparateur");
+        Check(!Hooks.BlockedDuringDisplay("mcp__Claude_Browser__computer", "screenshot", true)
+              && !Hooks.BlockedDuringDisplay("mcp__claude-in-chrome__computer", "left_click", true),
+              "navigateur non bloqué pendant secret show");
+        Check(Hooks.BlockedDuringDisplay("mcp__computer-use__computer", "screenshot", true)
+              && !Hooks.BlockedDuringDisplay("mcp__computer-use__computer", "screenshot", false),
+              "capture du bureau bloquée seulement fenêtre ouverte");
+        var now = DateTime.UtcNow;
+        var start = now.AddMinutes(-1);
+        var opened = new System.Text.Json.Nodes.JsonObject { ["pid"] = 42, ["started"] = start, ["opened"] = start };
+        Check(DisplayGuard.Evaluate(opened, start, now, _ => start).Open, "fenêtre secret show ouverte");
+        Check(!DisplayGuard.Evaluate(opened, start, now, _ => now.AddSeconds(-30)).Open, "numéro de processus recyclé");
+        var old = now.AddHours(-2);
+        Check(DisplayGuard.Evaluate(new() { ["pid"] = 42, ["opened"] = old }, old, now, _ => old) == (false, false),
+              "fenêtre ouverte trop ancienne ignorée");
+        Check(Hooks.IsAutomatedPrompt("<task-notification>\n<task-id>x</task-id>") && !Hooks.IsAutomatedPrompt("mon jeton est Winter2025!"),
+              "notification automatique reconnue");
         Check(Classifier.ScanText("1Password : utilisé par beaucoup d'équipes").Count == 0
               && Classifier.ScanText("Secrets: rien de neuf").Count == 0, "phrase « Nom : texte » sans secret");
         Check(Classifier.ScanText("db_password: hunter22").Count > 0

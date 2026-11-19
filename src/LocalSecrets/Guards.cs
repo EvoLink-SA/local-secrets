@@ -47,8 +47,10 @@ static partial class Guards
     public static partial Regex ScreenOrClipboardRx();
 
     public const string DisplayDenied =
-        "Une fenêtre local-secrets affiche (ou vient d'afficher) des secrets à l'utilisateur : capture d'écran et " +
-        "lecture du presse-papiers sont bloquées pendant l'affichage et dix minutes après.";
+        "Une fenêtre local-secrets affiche (ou vient d'afficher) des secrets à l'utilisateur : capture du bureau et " +
+        "lecture du presse-papiers sont bloquées pendant l'affichage et dix minutes après. Sous Windows 11, cette fenêtre " +
+        "est souvent un onglet « local-secrets » de Windows Terminal : demande à l'utilisateur de le fermer. " +
+        "Elle se ferme seule au bout de cinq minutes sans réponse. Le navigateur intégré et Claude in Chrome restent utilisables.";
 
     // Claude Code lancé depuis un terminal où le profil a déjà chargé les secrets du projet :
     // les commandes reçoivent les vraies valeurs, même sans secret run.

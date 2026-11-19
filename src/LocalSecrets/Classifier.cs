@@ -333,7 +333,8 @@ static partial class Classifier
     [GeneratedRegex(@"(?i)(^|;)\s*(password|pwd|accountkey|sharedaccesskey|sharedaccesssignature|clientsecret|client_secret)\s*=\s*[^;\s]")] private static partial Regex ConnStrRx();
     [GeneratedRegex(@"(?i)hooks\.slack\.com/|discord(app)?\.com/api/webhooks/|webhook\.office\.com/|outlook\.office\.com/webhook|api\.telegram\.org/bot")] private static partial Regex WebhookRx();
     [GeneratedRegex(@"(?i)[?&](token|access_token|api_key|apikey|key|sig|signature|password|pwd|secret|auth|code)=[^&\s]{8,}")] private static partial Regex UrlSecretParamRx();
-    [GeneratedRegex(@"(?i)(?<![\w])(?<label>mot\s+de\s+passe|mdp|password|passwd|pwd|passphrase|token|jeton|api[\s_\-]?key|cl[ée]\s+(?:d'|de\s+l')?api|secret|pass)(?![\w])(?!://)\s*(?:est|is|=|:|=>|->|vaut)?\s*[:=]?\s*[«""'`]?\s*(?<v>[^\s""'»`]{6,})")] private static partial Regex LabeledRx();
+    // Le libellé doit être un mot seul : jeton-confirmation.yaml, token.ts ou password/reset n'en sont pas.
+    [GeneratedRegex(@"(?i)(?<![\w])(?<label>mot\s+de\s+passe|mdp|password|passwd|pwd|passphrase|token|jeton|api[\s_\-]?key|cl[ée]\s+(?:d'|de\s+l')?api|secret|pass)(?![\w])(?!://)(?!-[^>])(?![./\\]\w)\s*(?:est|is|=|:|=>|->|vaut)?\s*[:=]?\s*[«""'`]?\s*(?<v>[^\s""'»`]{6,})")] private static partial Regex LabeledRx();
 
     [GeneratedRegex(@"(?<![\w$.])[""']?(?<k>[0-9]*[A-Za-z_][A-Za-z0-9_.\-]{1,60})[""']?(?<sp>[ \t]*)(?<sep>[:=])[ \t]*(?<v>""[^""\r\n]{1,200}""|'[^'\r\n]{1,200}'|[^\s""'`]{1,200})")] private static partial Regex AssignmentInTextRx();
     [GeneratedRegex(@"^(x{3,}.*|\*+|\.{3,}|changeme|change_me|change-me|example|exemple|placeholder|todo|tbd|secret|password|motdepasse|mot_de_passe|your[_\-].*|my[_\-].*|none|null|undefined|redacted|\[secret:.*\]|\[masqué:.*\]|\[secret:.*|\[masqué:.*)$", RegexOptions.IgnoreCase)] private static partial Regex PlaceholderRx();

@@ -72,11 +72,8 @@ static class Hooks
         var (displayOpen, displayRecent) = DisplayGuard.State();
         if (displayRecent)
         {
-            var isComputer = tool.StartsWith("mcp__", StringComparison.Ordinal) && tool.Contains("computer", StringComparison.OrdinalIgnoreCase);
             var text = ShellTools.Contains(tool) ? Str(ti, "command") ?? "" : string.Join(" ", Strings(ti));
-            if ((isComputer && (displayOpen || text.Contains("clipboard", StringComparison.OrdinalIgnoreCase) || tool.Contains("clipboard", StringComparison.OrdinalIgnoreCase)))
-                || (ShellTools.Contains(tool) && Guards.ScreenOrClipboardRx().IsMatch(text)))
-                return Deny(Guards.DisplayDenied);
+            if (BlockedDuringDisplay(tool, text, displayOpen)) return Deny(Guards.DisplayDenied);
         }
 
         if (FileTools.Contains(tool))
@@ -224,10 +221,33 @@ static class Hooks
         };
     }
 
+    // Navigateurs pilotés par Claude : leurs captures ne montrent que la page, jamais la fenêtre local-secrets.
+    static readonly string[] BrowserTools = ["Claude_Browser", "claude-in-chrome", "chrome-devtools"];
+
+    internal static bool BlockedDuringDisplay(string tool, string text, bool displayOpen)
+    {
+        if (ShellTools.Contains(tool)) return Guards.ScreenOrClipboardRx().IsMatch(text);
+        if (!tool.StartsWith("mcp__", StringComparison.Ordinal) || !tool.Contains("computer", StringComparison.OrdinalIgnoreCase)) return false;
+        var clipboard = text.Contains("clipboard", StringComparison.OrdinalIgnoreCase) || tool.Contains("clipboard", StringComparison.OrdinalIgnoreCase);
+        var browser = BrowserTools.Any(b => tool.Contains(b, StringComparison.OrdinalIgnoreCase));
+        return clipboard || (displayOpen && !browser);
+    }
+
+    static readonly string[] AutomatedPromptTags = ["<task-notification>", "<side-sessions-event>", "<ci-monitor-event>"];
+
+    internal static bool IsAutomatedPrompt(string prompt)
+    {
+        var p = prompt.TrimStart();
+        return AutomatedPromptTags.Any(t => p.StartsWith(t, StringComparison.Ordinal));
+    }
+
     static JsonObject? UserPromptSubmit(JsonObject input)
     {
         var prompt = Str(input, "prompt") ?? "";
         if (prompt.Contains("[nosecret]", StringComparison.OrdinalIgnoreCase)) return null;
+        // Notification envoyée par Claude Code (fin de tâche, de workflow...), pas un message tapé :
+        // la bloquer ne protège rien et arrête la session.
+        if (IsAutomatedPrompt(prompt)) return null;
         var findings = Classifier.ScanText(prompt);
         var vault = Vault.Load();
         if (vault.Secrets.Count > 0)
